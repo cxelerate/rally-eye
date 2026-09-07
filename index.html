@@ -1,0 +1,1093 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rally Eye</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #0D1218;
+    --surface: #151C25;
+    --surface-2: #1C2632;
+    --border: #2A3746;
+    --text: #E8EEF4;
+    --muted: #8C9DB1;
+    --accent: #FF8A2A;
+    --accent-ink: #1A0E04;
+    --table: #2F73C8;
+    --table-line: #DCE8F5;
+    --good: #37C47A;
+    --warn: #F0B83A;
+    --bad: #F0524F;
+    --focus: #7CB4FF;
+    --scrim: rgba(13, 18, 24, 0.8);
+    --font-display: "Barlow Condensed", "Arial Narrow", Impact, sans-serif;
+    --font-body: "IBM Plex Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "IBM Plex Mono", Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #EEF2F6;
+      --surface: #FFFFFF;
+      --surface-2: #F4F7FA;
+      --border: #D3DCE6;
+      --text: #121A23;
+      --muted: #5A6B7E;
+      --accent: #E86F12;
+      --accent-ink: #FFFFFF;
+      --table: #2B66B5;
+      --table-line: #F4F8FC;
+      --good: #1F9D5A;
+      --warn: #B8800A;
+      --bad: #D33F3C;
+      --focus: #2F6FD6;
+      --scrim: rgba(18, 26, 35, 0.78);
+      color-scheme: light;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #EEF2F6;
+    --surface: #FFFFFF;
+    --surface-2: #F4F7FA;
+    --border: #D3DCE6;
+    --text: #121A23;
+    --muted: #5A6B7E;
+    --accent: #E86F12;
+    --accent-ink: #FFFFFF;
+    --table: #2B66B5;
+    --table-line: #F4F8FC;
+    --good: #1F9D5A;
+    --warn: #B8800A;
+    --bad: #D33F3C;
+    --focus: #2F6FD6;
+    --scrim: rgba(18, 26, 35, 0.78);
+    color-scheme: light;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+  }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  button, select, input { font: inherit; color: inherit; }
+  h1, h2, h3, p { margin: 0; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  /* Header */
+  .top {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 10px 16px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  .brand .ball {
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: inset -4px -4px 0 rgba(0, 0, 0, 0.22);
+  }
+  .brand h1 {
+    font-family: var(--font-display);
+    font-size: 26px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1;
+  }
+  .brand .tag { color: var(--muted); font-size: 13px; }
+  .top .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .pill {
+    font-family: var(--font-mono); font-size: 12px; font-variant-numeric: tabular-nums;
+    padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--surface-2);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .pill[data-state="live"]::before { background: var(--good); }
+  .pill[data-state="error"]::before { background: var(--bad); }
+  .pill[data-state="starting"]::before { background: var(--warn); }
+  .top a { color: var(--accent); font-weight: 500; text-decoration: none; font-size: 13px; }
+  .top a:hover { text-decoration: underline; }
+
+  /* Layout */
+  .layout {
+    display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px;
+    padding: 16px; max-width: 1440px; margin: 0 auto;
+  }
+  @media (max-width: 980px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .stage { display: grid; gap: 12px; align-content: start; min-width: 0; }
+  .rail { display: grid; gap: 12px; align-content: start; min-width: 0; }
+
+  /* Stage */
+  .viewport {
+    position: relative; background: #05080C; border-radius: 10px; overflow: hidden;
+    aspect-ratio: 16 / 9; border: 1px solid var(--border);
+  }
+  .viewport canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .viewport[data-mode="corners"] canvas, .viewport[data-mode="pickBall"] canvas, .viewport[data-mode="pickTable"] canvas { cursor: crosshair; }
+  .hint {
+    position: absolute; left: 12px; right: 12px; top: 12px;
+    background: var(--scrim); color: #F4F7FA;
+    padding: 8px 12px; border-radius: 6px; font-size: 13px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .hint button { flex: none; }
+  .notice {
+    display: grid; gap: 10px; padding: 12px 14px; border-radius: 10px;
+    background: var(--surface); border: 1px solid var(--warn); border-left-width: 6px;
+  }
+  .notice p { font-size: 13px; }
+  .notice p b { font-weight: 600; }
+  .notice .actions { align-items: center; }
+  .notice .url { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+  .notice .url input { width: 100%; font-family: var(--font-mono); font-size: 12px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .toolbar select { max-width: 240px; }
+
+  .btn {
+    appearance: none; border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); padding: 8px 14px; border-radius: 6px; cursor: pointer;
+    font-weight: 500; line-height: 1.2; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--muted); }
+  .btn:disabled { opacity: 0.55; cursor: default; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--surface-2); }
+  .btn.small { padding: 5px 10px; font-size: 13px; }
+  select, input[type="text"] {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+    padding: 7px 10px; border-radius: 6px;
+  }
+
+  /* Feedback strip */
+  .feedback {
+    display: grid; grid-template-columns: 8px 1fr auto; align-items: center; gap: 14px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 16px 12px 12px; min-height: 76px;
+  }
+  .feedback .stripe { width: 8px; height: 100%; min-height: 48px; border-radius: 4px; background: var(--muted); }
+  .feedback[data-level="good"] .stripe { background: var(--good); }
+  .feedback[data-level="warn"] .stripe { background: var(--warn); }
+  .feedback[data-level="bad"] .stripe { background: var(--bad); }
+  .feedback[data-level="accent"] .stripe { background: var(--accent); }
+  .fb-text {
+    font-family: var(--font-display); font-weight: 700; text-transform: uppercase;
+    font-size: clamp(24px, 3.2vw, 36px); letter-spacing: 0.02em; line-height: 1; text-wrap: balance;
+  }
+  .fb-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
+  .fb-side { text-align: right; }
+  .fb-side .big { font-family: var(--font-display); font-size: 40px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .fb-side .cap { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+
+  /* Tiles */
+  .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .tile { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px 8px; min-width: 0; }
+  .tile .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile .value { font-family: var(--font-display); font-size: 34px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .tile .unit { font-size: 11px; color: var(--muted); }
+  .tile.a .value { color: var(--table); }
+  .tile.b .value { color: var(--accent); }
+
+  /* Map */
+  .map-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px 8px; }
+  .map-card .head { display: flex; justify-content: space-between; align-items: baseline; }
+  .map-card .head .label { font-family: var(--font-display); font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .map-card .head .note { font-size: 11px; color: var(--muted); }
+  .map-card canvas { display: block; width: 100%; height: auto; margin-top: 8px; border-radius: 4px; }
+  .legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--muted); flex-wrap: wrap; }
+  .legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  .legend .in::before { background: var(--good); }
+  .legend .out::before { background: var(--bad); }
+  .legend .last::before { background: var(--accent); }
+
+  /* Settings groups */
+  details.group { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+  details.group summary {
+    list-style: none; cursor: pointer; padding: 10px 12px;
+    font-family: var(--font-display); font-size: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  details.group summary::-webkit-details-marker { display: none; }
+  details.group summary::after { content: "+"; color: var(--muted); font-weight: 500; }
+  details.group[open] summary::after { content: "–"; }
+  details.group summary .sub { font-family: var(--font-body); font-size: 12px; font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted); margin-left: auto; margin-right: 10px; }
+  .group-body { padding: 2px 12px 12px; display: grid; gap: 10px; }
+  .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; font-size: 13px; }
+  .row .val { font-family: var(--font-mono); font-size: 12px; color: var(--muted); min-width: 64px; text-align: right; }
+  .row.full { grid-template-columns: 1fr; }
+  .range { display: grid; gap: 4px; }
+  .range input[type="range"] { width: 100%; accent-color: var(--accent); margin: 0; }
+  .seg { display: flex; gap: 4px; }
+  .seg .btn { flex: 1; padding: 6px 8px; font-size: 13px; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+  .swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border); }
+  .actions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tips { font-size: 13px; color: var(--muted); display: grid; gap: 6px; padding-left: 18px; margin: 0; }
+  .tips b { color: var(--text); font-weight: 500; }
+  .foot { color: var(--muted); font-size: 12px; padding: 0 16px 24px; max-width: 1440px; margin: 0 auto; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .pill[data-state="starting"]::before { animation: blink 1s infinite; }
+    @keyframes blink { 50% { opacity: 0.3; } }
+  }
+</style>
+<header class="top">
+  <div class="brand">
+    <span class="ball" aria-hidden="true"></span>
+    <h1>Rally Eye</h1>
+    <span class="tag">Ball and table tracker for your webcam</span>
+  </div>
+  <div class="right">
+    <span id="fps" class="pill">— fps</span>
+    <span id="statusPill" class="pill" data-state="demo">Demo feed</span>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="stage" aria-label="Live view">
+    <div class="notice" id="frameNotice" hidden>
+      <p><b>The camera cannot run inside this panel.</b> Browsers only allow camera access on a page that is open in its own tab. Save this page as a file and open that file, and the camera prompt will appear there.</p>
+      <div class="actions">
+        <button class="btn primary" type="button" id="btnSavePage">Save this page as a file</button>
+        <button class="btn" type="button" id="btnOpenTop">Try opening in a new tab</button>
+      </div>
+      <div class="url" id="noticeUrl" hidden>
+        <span id="noticeUrlText">If nothing opened, copy this address into a new tab:</span>
+        <input type="text" readonly id="noticeUrlInput" aria-label="Page address">
+      </div>
+    </div>
+    <div class="viewport" id="viewport" data-mode="none">
+      <canvas id="view" width="960" height="540" aria-label="Camera view with tracking overlay"></canvas>
+      <video id="cam" playsinline muted autoplay hidden></video>
+      <div class="hint" id="hint" hidden>
+        <span id="hintText"></span>
+        <button class="btn small" id="hintCancel" type="button">Cancel</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <button class="btn primary" id="btnStart" type="button">Start camera</button>
+      <select id="camSel" aria-label="Camera"><option value="">Default camera</option></select>
+      <button class="btn" id="btnMirror" type="button" aria-pressed="false">Mirror</button>
+      <button class="btn" id="btnDemo" type="button" aria-pressed="true">Demo feed</button>
+      <button class="btn" id="btnReset" type="button">Reset stats</button>
+    </div>
+
+    <div class="feedback" id="feedback" data-level="none" aria-live="polite">
+      <div class="stripe"></div>
+      <div>
+        <div class="fb-text" id="fbText">Warming up</div>
+        <div class="fb-sub" id="fbSub">The demo feed runs through the same tracker as your camera. Start the camera when you are set up.</div>
+      </div>
+      <div class="fb-side">
+        <div class="big" id="fbRally">0</div>
+        <div class="cap">Rally hits</div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="rail" aria-label="Stats and settings">
+    <div class="tiles">
+      <div class="tile"><div class="label">Ball speed</div><div class="value" id="tSpeed">—</div><div class="unit" id="tSpeedUnit">km/h, estimated</div></div>
+      <div class="tile"><div class="label">Top speed</div><div class="value" id="tTop">—</div><div class="unit" id="tTopUnit">km/h, approx.</div></div>
+      <div class="tile"><div class="label">Best rally</div><div class="value" id="tBest">0</div><div class="unit">hits</div></div>
+      <div class="tile a"><div class="label" id="lblA">Left bounces</div><div class="value" id="tBounceA">0</div><div class="unit">on the table</div></div>
+      <div class="tile b"><div class="label" id="lblB">Right bounces</div><div class="value" id="tBounceB">0</div><div class="unit">on the table</div></div>
+      <div class="tile"><div class="label">Out</div><div class="value" id="tOut">0</div><div class="unit">missed the table</div></div>
+    </div>
+
+    <div class="map-card">
+      <div class="head"><span class="label">Bounce map</span><span class="note" id="mapNote">2.74 m × 1.525 m, seen from above</span></div>
+      <canvas id="map" width="360" height="220" aria-label="Top-down bounce map"></canvas>
+      <div class="legend"><span class="in">On the table</span><span class="out">Out</span><span class="last">Latest bounce</span></div>
+    </div>
+
+    <details class="group" open>
+      <summary>Ball <span class="sub" id="ballSub">Orange</span></summary>
+      <div class="group-body">
+        <div class="seg" role="group" aria-label="Ball colour preset">
+          <button class="btn" type="button" data-preset="orange" aria-pressed="true">Orange</button>
+          <button class="btn" type="button" data-preset="white" aria-pressed="false">White</button>
+          <button class="btn" type="button" id="btnPickBall" aria-pressed="false">Pick from video</button>
+        </div>
+        <div class="range"><div class="row"><span>Hue range</span><span class="val" id="vHue">8–45°</span></div>
+          <input type="range" id="hueMin" min="0" max="360" step="1" value="8" aria-label="Hue minimum">
+          <input type="range" id="hueMax" min="0" max="360" step="1" value="45" aria-label="Hue maximum"></div>
+        <div class="range"><div class="row"><span>Saturation</span><span class="val" id="vSat">40–100%</span></div>
+          <input type="range" id="satMin" min="0" max="100" step="1" value="40" aria-label="Saturation minimum">
+          <input type="range" id="satMax" min="0" max="100" step="1" value="100" aria-label="Saturation maximum"></div>
+        <div class="range"><div class="row"><span>Brightness, minimum</span><span class="val" id="vVal">40%</span></div>
+          <input type="range" id="valMin" min="0" max="100" step="1" value="40" aria-label="Brightness minimum"></div>
+        <div class="range"><div class="row"><span>Ball size in the frame</span><span class="val" id="vSize">2–24 px</span></div>
+          <input type="range" id="radMin" min="1" max="20" step="1" value="2" aria-label="Minimum ball radius">
+          <input type="range" id="radMax" min="4" max="60" step="1" value="24" aria-label="Maximum ball radius"></div>
+        <label class="check"><input type="checkbox" id="motionGate"> Only accept a moving ball (helps with white balls and busy rooms)</label>
+      </div>
+    </details>
+
+    <details class="group" open>
+      <summary>Table <span class="sub" id="tableSub">Not set</span></summary>
+      <div class="group-body">
+        <div class="seg" role="group" aria-label="Table colour">
+          <button class="btn" type="button" data-table="blue" aria-pressed="true">Blue</button>
+          <button class="btn" type="button" data-table="green" aria-pressed="false">Green</button>
+          <button class="btn" type="button" id="btnPickTable" aria-pressed="false">Pick colour</button>
+        </div>
+        <div class="actions">
+          <button class="btn" type="button" id="btnDetectTable">Find table automatically</button>
+          <button class="btn" type="button" id="btnCorners">Tap the 4 corners</button>
+          <button class="btn" type="button" id="btnClearTable">Clear</button>
+        </div>
+        <div class="row"><span>Camera position</span>
+          <div class="seg" role="group" aria-label="Camera position">
+            <button class="btn" type="button" data-view="side" aria-pressed="true">Side of table</button>
+            <button class="btn" type="button" data-view="end" aria-pressed="false">End of table</button>
+          </div>
+        </div>
+        <p class="fb-sub">Drag the corner handles on the video to fine-tune. With the table set, speeds convert to km/h and bounces are placed on the map.</p>
+      </div>
+    </details>
+
+    <details class="group">
+      <summary>Detection</summary>
+      <div class="group-body">
+        <div class="row"><span>Processing width</span>
+          <select id="procW" aria-label="Processing width"><option value="240">240 px, fastest</option><option value="320" selected>320 px</option><option value="480">480 px, most precise</option></select></div>
+        <div class="range"><div class="row"><span>Motion threshold</span><span class="val" id="vMotion">28</span></div>
+          <input type="range" id="motionThr" min="5" max="80" step="1" value="28" aria-label="Motion threshold"></div>
+        <label class="check"><input type="checkbox" id="showMask"> Show what the tracker sees (colour mask)</label>
+        <label class="check"><input type="checkbox" id="showTrail" checked> Draw the ball trail</label>
+      </div>
+    </details>
+
+    <details class="group">
+      <summary>Sound and voice</summary>
+      <div class="group-body">
+        <label class="check"><input type="checkbox" id="sound" checked> Click on every bounce, low tone when the ball is out</label>
+        <label class="check"><input type="checkbox" id="voice"> Speak the rally count every 5 hits and call "out"</label>
+      </div>
+    </details>
+
+    <details class="group">
+      <summary>Setup tips</summary>
+      <div class="group-body">
+        <ol class="tips">
+          <li><b>Camera at the side of the table</b>, about level with the net, so the whole table fits in the frame. Bounces read best from the side.</li>
+          <li><b>Steady light, plain background.</b> Turn off auto-exposure flicker if you can and keep orange or white objects out of view.</li>
+          <li><b>Set the table once</b> with the automatic finder or by tapping its four corners. Keep the laptop still afterwards.</li>
+          <li><b>Check the mask</b> under Detection if the ball is missed: the ball should light up alone. Use Pick from video to sample its real colour.</li>
+        </ol>
+      </div>
+    </details>
+  </aside>
+</main>
+<p class="foot">Everything runs in your browser. No video leaves your device.</p>
+<script id="app">
+(() => {
+'use strict';
+const $ = (id) => document.getElementById(id);
+
+// ---------- Table tennis constants ----------
+const TABLE_L = 2.74;     // metres, along the length
+const TABLE_W = 1.525;    // metres, across
+const NET_H = 0.1525;     // metres
+const EDGE_TOL = 0.035;   // metres of slack when judging in or out (ball radius plus noise)
+
+// ---------- Settings (persisted) ----------
+const defaults = {
+  preset: 'orange', hueMin: 8, hueMax: 45, satMin: 40, satMax: 100, valMin: 40,
+  radMin: 2, radMax: 24, motionGate: false, motionThr: 28,
+  tableColor: 'blue', tHueMin: 195, tHueMax: 250, tSatMin: 30, tValMin: 15,
+  view: 'side', mirror: false, procW: 320, showMask: false, showTrail: true, sound: true, voice: false,
+  corners: null // four {x, y} pairs, normalised 0..1 in frame coordinates: top-left, top-right, bottom-right, bottom-left
+};
+const cfg = Object.assign({}, defaults);
+try { const s = localStorage.getItem('rallyeye.v1'); if (s) Object.assign(cfg, JSON.parse(s)); } catch (e) { /* storage unavailable */ }
+function save() { try { localStorage.setItem('rallyeye.v1', JSON.stringify(cfg)); } catch (e) { /* ignore */ } }
+
+// ---------- Small maths ----------
+function solveLinear(A, b) { // Gaussian elimination with partial pivoting; A is n×n (array of rows), returns x or null
+  const n = b.length; const M = A.map((row, i) => row.concat([b[i]]));
+  for (let c = 0; c < n; c++) {
+    let piv = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+    if (Math.abs(M[piv][c]) < 1e-12) return null;
+    [M[c], M[piv]] = [M[piv], M[c]];
+    for (let r = 0; r < n; r++) { if (r === c) continue; const f = M[r][c] / M[c][c]; if (!f) continue; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+  }
+  return M.map((row, i) => row[n] / row[i]);
+}
+function homography(src, dst) { // 4 point pairs {x,y} -> 3×3 matrix (row-major) or null
+  const A = [], b = [];
+  for (let i = 0; i < 4; i++) {
+    const { x, y } = src[i], { x: u, y: v } = dst[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v);
+  }
+  const h = solveLinear(A, b); return h ? [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1] : null;
+}
+function applyH(H, x, y) { const w = H[6] * x + H[7] * y + H[8]; return { x: (H[0] * x + H[1] * y + H[2]) / w, y: (H[3] * x + H[4] * y + H[5]) / w }; }
+function invert3(m) {
+  const [a, b, c, d, e, f, g, h, i] = m;
+  const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+  const det = a * A + b * B + c * C; if (Math.abs(det) < 1e-12) return null;
+  return [A / det, -(b * i - c * h) / det, (b * f - c * e) / det, B / det, (a * i - c * g) / det, -(a * f - c * d) / det, C / det, -(a * h - b * g) / det, (a * e - b * d) / det];
+}
+function rgbToHsv(r, g, b) {
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+  let h = 0; if (d) { if (mx === r) h = 60 * (((g - b) / d) % 6); else if (mx === g) h = 60 * ((b - r) / d + 2); else h = 60 * ((r - g) / d + 4); if (h < 0) h += 360; }
+  return { h, s: mx ? d / mx : 0, v: mx / 255 };
+}
+function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+
+// ---------- Table model: image (normalised) -> table (metres) ----------
+const table = { H: null, Hinv: null };
+function tableTargets() { // where the four tapped corners land on the table, by camera position
+  return cfg.view === 'end'
+    ? [{ x: TABLE_L, y: 0 }, { x: TABLE_L, y: TABLE_W }, { x: 0, y: TABLE_W }, { x: 0, y: 0 }]   // far end is at the top of the frame
+    : [{ x: 0, y: 0 }, { x: TABLE_L, y: 0 }, { x: TABLE_L, y: TABLE_W }, { x: 0, y: TABLE_W }]; // length runs left to right
+}
+function rebuildTable() {
+  table.H = null; table.Hinv = null;
+  if (cfg.corners && cfg.corners.length === 4) {
+    table.H = homography(cfg.corners, tableTargets());
+    table.Hinv = table.H ? invert3(table.H) : null;
+    if (!table.Hinv) table.H = null;
+  }
+  stats.top = null; track.kmhSmooth = null; // units change between px/s and km/h
+  updateTableUI();
+}
+function toTable(nx, ny) { return table.H ? applyH(table.H, nx, ny) : null; }        // returns {x: along length, y: across}
+function toFrame(u, v) { return table.Hinv ? applyH(table.Hinv, u, v) : null; }       // normalised frame coords
+function sideOf(u) { return u < TABLE_L / 2 ? 'A' : 'B'; }
+function sideName(side) { return cfg.view === 'end' ? (side === 'A' ? 'Near side' : 'Far side') : (side === 'A' ? 'Left side' : 'Right side'); }
+function sideShort(side) { return cfg.view === 'end' ? (side === 'A' ? 'Near' : 'Far') : (side === 'A' ? 'Left' : 'Right'); }
+
+// ---------- Frame source: the camera or the demo ----------
+const video = $('cam');
+const src = { kind: 'demo', el: null, w: 960, h: 540 };
+let stream = null;
+
+// The demo feed: a synthetic side view of a table with a physically simulated ball, run through the real tracker.
+const demo = (() => {
+  const c = document.createElement('canvas'); c.width = 960; c.height = 540; const g = c.getContext('2d');
+  const quad = [{ x: 212, y: 300 }, { x: 748, y: 300 }, { x: 812, y: 372 }, { x: 148, y: 372 }]; // table top in the demo frame
+  const Hq = invert3(homography(quad, [{ x: 0, y: 0 }, { x: TABLE_L, y: 0 }, { x: TABLE_L, y: TABLE_W }, { x: 0, y: TABLE_W }]));
+  let rnd = mulberry32(7);
+  const BR = 0.028; // demo ball radius in metres, a touch over life size so it reads on screen
+  const ball = { x: 0.2, y: 0.76, z: 0.25, vx: 3.2, vy: 0, vz: 1.4 };
+  const st = { lastT: 0, pause: 0, vanishIn: 0, hits: 0, bounces: [], paddleL: 0, paddleR: 0, serveFrom: 'B', letThrough: false };
+  function project(x, y, z) {
+    const p = applyH(Hq, x, y); const depth = (p.y - 300) / 72; const ppm = 226 + 52 * depth; // pixels per metre grows toward the camera
+    return { x: p.x, y: p.y - z * ppm, r: BR * ppm };
+  }
+  function serve(from) {
+    ball.x = from === 'A' ? 0.15 : TABLE_L - 0.15; ball.y = 0.45 + rnd() * 0.6; ball.z = 0.2 + rnd() * 0.1;
+    ball.vx = (from === 'A' ? 1 : -1) * (2.8 + rnd() * 0.6); ball.vy = (rnd() - 0.5) * 0.4; ball.vz = 0.3 + rnd() * 0.3; st.hits = 0; st.letThrough = false;
+  }
+  function step(now) {
+    if (!st.lastT) st.lastT = now; let dt = Math.min(0.05, (now - st.lastT) / 1000); st.lastT = now;
+    if (st.pause > 0) { st.pause -= dt; if (st.pause <= 0) serve(st.serveFrom); return; }
+    ball.vz -= 9.81 * dt; ball.x += ball.vx * dt; ball.y += ball.vy * dt; ball.z += ball.vz * dt;
+    const onTable = ball.x >= 0 && ball.x <= TABLE_L && ball.y >= 0 && ball.y <= TABLE_W;
+    if (ball.z <= BR && onTable && ball.vz < 0) { ball.z = BR; ball.vz = -ball.vz * 0.86; st.bounces.push({ x: ball.x, y: ball.y, t: now, out: false }); }
+    if (ball.z <= BR - 0.22 && ball.vz < 0) { ball.z = BR - 0.22; ball.vz = -ball.vz * 0.4; if (st.vanishIn <= 0) { st.bounces.push({ x: ball.x, y: ball.y, t: now, out: true }); st.vanishIn = 0.5; } }
+    if (st.vanishIn > 0) { st.vanishIn -= dt; if (st.vanishIn <= 0) { st.pause = 1.2; st.serveFrom = ball.x < TABLE_L / 2 ? 'A' : 'B'; } }
+    // paddles return the ball just past each end; every so often a wild return sails long and lands on the floor
+    const past = ball.x < -0.3 && ball.vx < 0 || ball.x > TABLE_L + 0.3 && ball.vx > 0;
+    if (past && st.letThrough) { ball.vx *= 0.05; ball.vy = 0; } // a long ball hits the player and drops to the floor
+    else if (past && ball.z > -0.35) {
+      st.hits++; const wild = st.hits % 7 === 0; st.letThrough = wild;
+      const dir = ball.x < TABLE_L / 2 ? 1 : -1;
+      ball.z = Math.min(0.45, Math.max(0.15, ball.z));
+      ball.vx = dir * (wild ? 5.6 + rnd() * 0.6 : 4.5 + rnd()); ball.vz = wild ? 2.0 + rnd() * 0.3 : 1.0 + rnd() * 0.4; ball.vy = (rnd() - 0.5) * 0.5;
+      if (dir > 0) st.paddleL = 1; else st.paddleR = 1;
+    } else if (past) { st.pause = 1.0; st.serveFrom = ball.x < TABLE_L / 2 ? 'A' : 'B'; }
+    if (st.bounces.length > 40) st.bounces.shift();
+    st.paddleL = Math.max(0, st.paddleL - dt * 3); st.paddleR = Math.max(0, st.paddleR - dt * 3);
+  }
+  function render(now) {
+    step(now);
+    const wall = g.createLinearGradient(0, 0, 0, 540); wall.addColorStop(0, '#3B424B'); wall.addColorStop(1, '#262B31'); g.fillStyle = wall; g.fillRect(0, 0, 960, 540);
+    g.fillStyle = '#1F2226'; g.fillRect(0, 432, 960, 108);
+    g.fillStyle = '#55606B'; g.fillRect(60, 40, 180, 140); g.fillStyle = '#7C8996'; g.fillRect(70, 50, 160, 120);
+    // table top, thickness and legs
+    g.fillStyle = '#1E4F8E'; g.beginPath(); quad.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)); g.closePath(); g.fill();
+    g.strokeStyle = '#E9EEF3'; g.lineWidth = 2; g.stroke();
+    g.beginPath(); g.moveTo((quad[0].x + quad[3].x) / 2, (quad[0].y + quad[3].y) / 2); g.lineTo((quad[1].x + quad[2].x) / 2, (quad[1].y + quad[2].y) / 2); g.lineWidth = 1; g.stroke();
+    g.fillStyle = '#23282E'; g.fillRect(148, 372, 664, 12);
+    g.fillStyle = '#2A2F35'; g.fillRect(186, 384, 14, 90); g.fillRect(760, 384, 14, 90);
+    // net
+    const netTop = project(TABLE_L / 2, 0, NET_H), netBot = project(TABLE_L / 2, TABLE_W, 0);
+    g.fillStyle = 'rgba(236,240,244,0.75)'; g.fillRect(netTop.x - 3, netTop.y, 6, netBot.y - netTop.y); g.fillStyle = '#E9EEF3'; g.fillRect(netTop.x - 5, netTop.y - 2, 10, 3);
+    // players' paddles, red rubber
+    const pl = project(-0.35, 0.8, 0.2 + 0.15 * st.paddleL), pr = project(TABLE_L + 0.35, 0.8, 0.2 + 0.15 * st.paddleR);
+    for (const p of [pl, pr]) { g.fillStyle = '#B4262E'; g.beginPath(); g.ellipse(p.x, p.y, 16, 20, 0, 0, Math.PI * 2); g.fill(); g.fillStyle = '#6E4A2D'; g.fillRect(p.x - 4, p.y + 16, 8, 30); }
+    // ball with motion blur along its velocity
+    if (st.pause <= 0) {
+      const b = project(ball.x, ball.y, ball.z); const b2 = project(ball.x - ball.vx * 0.012, ball.y - ball.vy * 0.012, ball.z - ball.vz * 0.012);
+      g.strokeStyle = 'rgba(255,140,40,0.55)'; g.lineWidth = b.r * 2; g.lineCap = 'round'; g.beginPath(); g.moveTo(b2.x, b2.y); g.lineTo(b.x, b.y); g.stroke();
+      g.fillStyle = '#FF8C28'; g.beginPath(); g.arc(b.x, b.y, b.r, 0, Math.PI * 2); g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.35)'; g.beginPath(); g.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.4, 0, Math.PI * 2); g.fill();
+    }
+    // a little sensor noise
+    g.fillStyle = 'rgba(255,255,255,0.05)'; for (let i = 0; i < 40; i++) g.fillRect(rnd() * 960, rnd() * 540, 2, 2);
+  }
+  return { canvas: c, render, state: st, ball, quad, reset(seed) { rnd = mulberry32(seed || 7); st.bounces.length = 0; st.pause = 0; st.vanishIn = 0; st.lastT = 0; serve('A'); } };
+})();
+
+function setSource(kind) {
+  if (kind === 'demo') { src.kind = 'demo'; src.el = demo.canvas; src.w = 960; src.h = 540; }
+  else { src.kind = 'camera'; src.el = video; src.w = video.videoWidth || 1280; src.h = video.videoHeight || 720; }
+  resizeForSource();
+}
+
+// ---------- Processing buffers ----------
+const view = $('view'), vctx = view.getContext('2d');
+const pc = document.createElement('canvas'); const pctx = pc.getContext('2d', { willReadFrequently: true });
+const maskCanvas = document.createElement('canvas'); const mctx = maskCanvas.getContext('2d');
+let procW = 320, procH = 180, N = 0;
+let mask, maskShow, gray, prevGray, stack, havePrev = false, lastData = null;
+function resizeForSource() {
+  procW = Number(cfg.procW) || 320; procH = Math.max(8, Math.round(procW * src.h / src.w)); N = procW * procH;
+  pc.width = procW; pc.height = procH; maskCanvas.width = procW; maskCanvas.height = procH;
+  mask = new Uint8Array(N); maskShow = new Uint8Array(N); gray = new Uint8Array(N); prevGray = new Uint8Array(N); stack = new Int32Array(N); havePrev = false;
+  view.width = src.w; view.height = src.h; $('viewport').style.aspectRatio = `${src.w} / ${src.h}`;
+  track.pts.length = 0; track.active = false; markers.length = 0;
+}
+
+// ---------- Tracking state ----------
+const track = { pts: [], vx: 0, vy: 0, active: false, lost: 0, lastSeen: 0, speedPx: 0, kmh: null, kmhSmooth: null };
+const ev = { yDir: 0, yRun: 0, low: null, pendBounce: null, queued: null, xDir: 0, xRun: 0, pendHit: null, lastBounceT: -1e9, lastHitT: -1e9 };
+const stats = { bounceA: 0, bounceB: 0, out: 0, best: 0, top: null, bounces: [], frames: 0 };
+const rally = { hits: 0, hitsSince: 0, lastBounceSide: null };
+const markers = []; // transient rings drawn on the video
+let fps = 0, lastFrameT = 0;
+let wantTableDetect = false;
+
+function resetEvents() { ev.yDir = 0; ev.yRun = 0; ev.low = null; ev.pendBounce = null; ev.queued = null; ev.xDir = 0; ev.xRun = 0; ev.pendHit = null; }
+function resetStats() {
+  stats.bounceA = 0; stats.bounceB = 0; stats.out = 0; stats.best = 0; stats.top = null; stats.bounces.length = 0;
+  rally.hits = 0; rally.hitsSince = 0; rally.lastBounceSide = null; markers.length = 0; resetEvents(); updateStats(); drawMap();
+}
+
+// ---------- Per-frame colour segmentation ----------
+function hueIn(h, lo, hi) { return lo <= hi ? (h >= lo && h <= hi) : (h >= lo || h <= hi); }
+function segment(d, out, hLo, hHi, sLo, sHi, vLo, withGray) {
+  const hueAll = hLo <= 0 && hHi >= 360; const sMin = sLo * 2.55, sMax = sHi * 2.55, vMin = vLo * 2.55;
+  for (let i = 0, p = 0; i < N; i++, p += 4) {
+    const r = d[p], g = d[p + 1], b = d[p + 2];
+    let mx = r > g ? r : g; if (b > mx) mx = b; let mn = r < g ? r : g; if (b < mn) mn = b;
+    if (withGray) out.gray[i] = (r * 77 + g * 150 + b * 29) >> 8;
+    if (mx < vMin) { out.mask[i] = 0; continue; }
+    const delta = mx - mn; const s = mx ? delta * 255 / mx : 0;
+    if (s < sMin || s > sMax) { out.mask[i] = 0; continue; }
+    if (hueAll) { out.mask[i] = 1; continue; }
+    if (!delta) { out.mask[i] = 0; continue; }
+    let h; if (mx === r) h = 60 * ((g - b) / delta); else if (mx === g) h = 120 + 60 * ((b - r) / delta); else h = 240 + 60 * ((r - g) / delta); if (h < 0) h += 360;
+    out.mask[i] = hueIn(h, hLo, hHi) ? 1 : 0;
+  }
+}
+
+// Flood-fill connected components. Consumes the mask. Returns blobs within the area window.
+function findBlobs(m, w, h, minArea, maxArea) {
+  const blobs = [];
+  for (let i = 0; i < N; i++) {
+    if (!m[i]) continue;
+    let sp = 0; stack[sp++] = i; m[i] = 0;
+    let area = 0, sx = 0, sy = 0, minx = w, maxx = 0, miny = h, maxy = 0;
+    let tl = 1e9, tlI = i, tr = -1e9, trI = i, br = -1e9, brI = i, bl = 1e9, blI = i;
+    while (sp) {
+      const j = stack[--sp]; const x = j % w, y = (j - x) / w;
+      area++; sx += x; sy += y;
+      if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y;
+      const s1 = x + y, s2 = x - y;
+      if (s1 < tl) { tl = s1; tlI = j; } if (s1 > br) { br = s1; brI = j; } if (s2 > tr) { tr = s2; trI = j; } if (s2 < bl) { bl = s2; blI = j; }
+      if (x > 0 && m[j - 1]) { m[j - 1] = 0; stack[sp++] = j - 1; }
+      if (x < w - 1 && m[j + 1]) { m[j + 1] = 0; stack[sp++] = j + 1; }
+      if (y > 0 && m[j - w]) { m[j - w] = 0; stack[sp++] = j - w; }
+      if (y < h - 1 && m[j + w]) { m[j + w] = 0; stack[sp++] = j + w; }
+    }
+    if (area >= minArea && area <= maxArea) {
+      const pt = (k) => ({ x: k % w, y: (k - k % w) / w });
+      blobs.push({ area, cx: sx / area, cy: sy / area, w: maxx - minx + 1, h: maxy - miny + 1, minx, miny, corners: [pt(tlI), pt(trI), pt(brI), pt(blI)] });
+    }
+  }
+  return blobs;
+}
+
+function pickBall(blobs, pred, searchR) {
+  let best = null, bestScore = -1;
+  for (const b of blobs) {
+    const aspect = b.w / b.h; if (aspect < 0.4 || aspect > 2.6) continue;
+    const fill = b.area / (b.w * b.h); if (fill < 0.35) continue;
+    const circ = 1 - Math.min(1, Math.abs(fill - 0.785) / 0.45);
+    const asp = 1 - Math.min(1, Math.abs(Math.log(aspect)) / Math.log(2.6));
+    let score = circ * 0.55 + asp * 0.3 + 0.15 * Math.min(1, b.area / 40);
+    if (pred) { const dist = Math.hypot(b.cx - pred.x, b.cy - pred.y); score += 1.3 * Math.max(0, 1 - dist / searchR); }
+    if (score > bestScore) { bestScore = score; best = b; }
+  }
+  return best;
+}
+
+// ---------- The frame step ----------
+function processFrame(now) {
+  if (lastFrameT) { const inst = 1000 / Math.max(1, now - lastFrameT); fps = fps ? fps * 0.9 + inst * 0.1 : inst; } lastFrameT = now;
+  if (src.kind === 'demo') demo.render(now);
+  else if (video.readyState < 2) return;
+  pctx.save(); if (cfg.mirror) { pctx.translate(procW, 0); pctx.scale(-1, 1); } pctx.drawImage(src.el, 0, 0, procW, procH); pctx.restore();
+  const img = pctx.getImageData(0, 0, procW, procH); const d = img.data; lastData = d;
+
+  if (wantTableDetect) { wantTableDetect = false; autoDetectTable(d); }
+
+  segment(d, { mask, gray }, cfg.hueMin, cfg.hueMax, cfg.satMin, cfg.satMax, cfg.valMin, true);
+  const last = track.pts.length ? track.pts[track.pts.length - 1] : null;
+  if (cfg.motionGate && havePrev) {
+    const thr = cfg.motionThr, keepR2 = Math.pow(cfg.radMax * 2, 2);
+    for (let i = 0; i < N; i++) {
+      if (!mask[i]) continue;
+      if (Math.abs(gray[i] - prevGray[i]) >= thr) continue;
+      if (last && track.lost < 8) { const x = i % procW, y = (i - x) / procW; if ((x - last.x) ** 2 + (y - last.y) ** 2 <= keepR2) continue; }
+      mask[i] = 0;
+    }
+  }
+  const t = prevGray; prevGray = gray; gray = t; havePrev = true;
+  if (cfg.showMask) maskShow.set(mask);
+
+  const minArea = Math.max(3, Math.PI * cfg.radMin * cfg.radMin * 0.6), maxArea = Math.PI * cfg.radMax * cfg.radMax * 1.6;
+  const blobs = findBlobs(mask, procW, procH, minArea, maxArea);
+  let pred = null, searchR = procW * 0.14;
+  if (last && track.active) { const dt = Math.min(0.25, (now - last.t) / 1000); pred = { x: last.x + track.vx * dt, y: last.y + track.vy * dt }; searchR = procW * 0.12 + track.speedPx * dt * 1.5; }
+  const b = pickBall(blobs, pred, searchR);
+  if (b) updateTrack(b.cx, b.cy, now, b);
+  else {
+    track.lost++;
+    if (track.active && track.lost > 12) { track.active = false; resetEvents(); track.kmhSmooth = null; setFeedback('Searching for the ball', 'Ball lost from view. Check the colour mask under Detection if this keeps happening.', 'none', true); }
+    if (rally.hits > 0 && last && now - last.t > 2000) endRally('the ball left the frame');
+  }
+  stats.frames++;
+  draw(now);
+  if ((stats.frames & 3) === 0) updateStats();
+}
+
+function updateTrack(x, y, now, blob) {
+  const pts = track.pts; const prev = pts.length ? pts[pts.length - 1] : null;
+  const p = { x, y, t: now, r: Math.sqrt(blob.area / Math.PI), hh: blob.h / 2 };
+  if (prev && track.lost < 8) {
+    const dt = (now - prev.t) / 1000;
+    if (dt > 0) { const nvx = (x - prev.x) / dt, nvy = (y - prev.y) / dt; track.vx = track.active ? track.vx * 0.35 + nvx * 0.65 : nvx; track.vy = track.active ? track.vy * 0.35 + nvy * 0.65 : nvy; }
+  } else { track.vx = 0; track.vy = 0; resetEvents(); if (!track.active) setFeedback('Tracking the ball', table.H ? 'Speed and bounces are live.' : 'Set the table to judge in or out and read speeds in km/h.', 'good', true); }
+  const wasLost = track.lost >= 8;
+  track.lost = 0; track.active = true; track.lastSeen = now; track.speedPx = Math.hypot(track.vx, track.vy);
+  pts.push(p); if (pts.length > 24) pts.shift();
+  // speed in real units when the table is known: local metre-per-pixel scale from the homography
+  if (table.H && pts.length > 2 && !wasLost) {
+    // one pixel sideways on the table plane gives metres per pixel at that depth; it holds for vertical motion too
+    const a = toTable(x / procW, y / procH), bx = toTable((x + 1) / procW, y / procH);
+    const mpp = Math.hypot(bx.x - a.x, bx.y - a.y);
+    const kmh = track.speedPx * mpp * 3.6;
+    if (kmh < 160) { track.kmh = kmh; track.kmhSmooth = track.kmhSmooth == null ? kmh : track.kmhSmooth * 0.6 + kmh * 0.4; if (track.kmhSmooth > 4 && (stats.top == null || track.kmhSmooth > stats.top)) stats.top = track.kmhSmooth; }
+  } else if (!table.H) { track.kmh = null; const pxs = track.speedPx * src.w / procW; if (pts.length > 2 && !wasLost && (stats.top == null || pxs > stats.top)) stats.top = pxs; }
+  if (prev && !wasLost) detectEvents(p, prev);
+}
+
+// Bounce: the ball descends for at least two frames, then rises for two. Hit: the same, horizontally.
+// A paddle hit often turns the ball upward at the same instant it reverses it, so a bounce waits a couple of
+// frames and is dropped when a hit lands within about a frame and a half of it.
+function detectEvents(p, prev) {
+  const dy = p.y - prev.y, dx = p.x - prev.x, step = Math.max(0.5, procW / 640);
+  const frame = fps > 5 ? 1000 / fps : 33, near = Math.max(45, frame * 1.6);
+  if (dy > step) { if (ev.yDir === 1) ev.yRun++; else { ev.yDir = 1; ev.yRun = 1; } ev.low = p; ev.pendBounce = null; }
+  else if (dy < -step) {
+    if (ev.yDir === 1 && ev.yRun >= 2 && ev.low) ev.pendBounce = ev.low;
+    if (ev.yDir === -1) ev.yRun++; else { ev.yDir = -1; ev.yRun = 1; }
+    if (ev.pendBounce && ev.yRun >= 2) { ev.queued = ev.pendBounce; ev.pendBounce = null; }
+  }
+  if (Math.abs(dx) > step) {
+    const dir = dx > 0 ? 1 : -1;
+    if (ev.xDir === dir) ev.xRun++;
+    else { if (ev.xDir !== 0 && ev.xRun >= 2) ev.pendHit = { at: prev, dir }; ev.xDir = dir; ev.xRun = 1; }
+    if (ev.pendHit && ev.pendHit.dir === dir && ev.xRun >= 2) { fireHit(ev.pendHit.at); ev.pendHit = null; }
+  }
+  if (ev.queued) {
+    if (Math.abs(ev.queued.t - ev.lastHitT) <= near) ev.queued = null;
+    else if (p.t - ev.queued.t >= near + frame * 2.5) { fireBounce(ev.queued); ev.queued = null; }
+  }
+}
+
+function fireBounce(p) {
+  if (p.t - ev.lastBounceT < 120) return; ev.lastBounceT = p.t;
+  const cy = p.y + (p.hh || 0); // the bottom of the ball is what touches the table
+  const b = { x: p.x, y: cy, t: p.t, in: null, u: null, v: null, side: null, kmh: track.kmhSmooth };
+  const m = toTable(p.x / procW, cy / procH);
+  if (m) { b.u = m.x; b.v = m.y; b.in = m.x >= -EDGE_TOL && m.x <= TABLE_L + EDGE_TOL && m.y >= -EDGE_TOL && m.y <= TABLE_W + EDGE_TOL; b.side = sideOf(m.x); }
+  stats.bounces.push(b); if (stats.bounces.length > 80) stats.bounces.shift();
+  markers.push({ x: p.x, y: cy, t: performance.now(), kind: b.in === false ? 'out' : 'in' });
+  if (b.in === false) {
+    stats.out++; tone(200, 0.16); speak('Out');
+    const where = describeMiss(b); endRally('out', true);
+    setFeedback('Out', where, 'bad');
+  } else if (b.in === true) {
+    tone(880, 0.06);
+    if (b.side === 'A') stats.bounceA++; else stats.bounceB++;
+    const fromNet = Math.abs(b.u - TABLE_L / 2);
+    const depth = fromNet < 0.45 ? 'short, near the net' : fromNet > 0.95 ? 'deep, near the end line' : 'mid-table';
+    if (rally.lastBounceSide === b.side && rally.hitsSince === 0 && rally.hits > 0) { setFeedback('Double bounce', `${sideName(b.side)}, ${depth}. Point over.`, 'warn'); endRally('double bounce', true); }
+    else setFeedback(`Bounce · ${sideShort(b.side)}`, `${depth}, ${fromNet.toFixed(2)} m from the net${b.kmh ? `, about ${Math.round(b.kmh)} km/h` : ''}.`, 'good');
+    rally.lastBounceSide = b.side; rally.hitsSince = 0;
+  } else { tone(880, 0.06); setFeedback('Bounce', 'Set the table to judge in or out and place bounces on the map.', 'good'); }
+  drawMap();
+}
+function describeMiss(b) {
+  const parts = [];
+  if (b.u < -EDGE_TOL) parts.push(cfg.view === 'end' ? 'short of the near end' : 'past the left end'); else if (b.u > TABLE_L + EDGE_TOL) parts.push(cfg.view === 'end' ? 'long, past the far end' : 'past the right end');
+  if (b.v < -EDGE_TOL || b.v > TABLE_W + EDGE_TOL) parts.push('wide of the side line');
+  return `Landed ${parts.join(' and ') || 'off the table'}.`;
+}
+function fireHit(p) {
+  if (p.t - ev.lastHitT < 150 || cfg.view === 'end') return; ev.lastHitT = p.t;
+  rally.hits++; rally.hitsSince++; if (rally.hits > stats.best) stats.best = rally.hits;
+  markers.push({ x: p.x, y: p.y, t: performance.now(), kind: 'hit' });
+  if (rally.hits % 5 === 0) speak(String(rally.hits));
+  setFeedback(`Hit · rally ${rally.hits}`, track.kmhSmooth ? `Return at about ${Math.round(track.kmhSmooth)} km/h.` : 'Direction reversed on a paddle.', 'accent');
+  updateStats();
+}
+function endRally(reason, keepMessage) {
+  if (rally.hits > 0 && !keepMessage) setFeedback(`Rally over · ${rally.hits} hits`, `Ended because ${reason}.`, 'warn');
+  rally.hits = 0; rally.hitsSince = 0; rally.lastBounceSide = null; updateStats();
+}
+
+// ---------- Table finder ----------
+const tmaskOut = { mask: null, gray: null };
+function boxMax(a, out, w, h, r) { // separable dilation
+  const t = new Uint8Array(a.length);
+  for (let y = 0; y < h; y++) { const row = y * w; for (let x = 0; x < w; x++) { let v = 0; for (let k = Math.max(0, x - r), e = Math.min(w - 1, x + r); k <= e; k++) if (a[row + k]) { v = 1; break; } t[row + x] = v; } }
+  for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) { let v = 0; for (let k = Math.max(0, y - r), e = Math.min(h - 1, y + r); k <= e; k++) if (t[k * w + x]) { v = 1; break; } out[y * w + x] = v; }
+}
+function boxMin(a, out, w, h, r) { // separable erosion
+  const t = new Uint8Array(a.length);
+  for (let y = 0; y < h; y++) { const row = y * w; for (let x = 0; x < w; x++) { let v = 1; for (let k = Math.max(0, x - r), e = Math.min(w - 1, x + r); k <= e; k++) if (!a[row + k]) { v = 0; break; } t[row + x] = v; } }
+  for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) { let v = 1; for (let k = Math.max(0, y - r), e = Math.min(h - 1, y + r); k <= e; k++) if (!t[k * w + x]) { v = 0; break; } out[y * w + x] = v; }
+}
+function autoDetectTable(d) {
+  if (!tmaskOut.mask || tmaskOut.mask.length !== N) tmaskOut.mask = new Uint8Array(N);
+  segment(d, tmaskOut, cfg.tHueMin, cfg.tHueMax, cfg.tSatMin, 100, cfg.tValMin, false);
+  // close small gaps so the net, the centre line and glare do not split the surface into pieces
+  const r = Math.max(1, Math.round(procW / 160)), tmp = new Uint8Array(N); boxMax(tmaskOut.mask, tmp, procW, procH, r); boxMin(tmp, tmaskOut.mask, procW, procH, r);
+  const blobs = findBlobs(tmaskOut.mask, procW, procH, N * 0.03, N); let best = null;
+  for (const b of blobs) if (!best || b.area > best.area) best = b;
+  if (!best) { setFeedback('No table found', `Nothing large and ${cfg.tableColor === 'green' ? 'green' : cfg.tableColor === 'blue' ? 'blue' : 'of the picked colour'} is in view. Try Pick colour on the table surface, or tap its corners.`, 'warn'); return; }
+  cfg.corners = best.corners.map((c) => ({ x: (c.x + 0.5) / procW, y: (c.y + 0.5) / procH })); save(); rebuildTable();
+  setFeedback('Table found', 'Drag the corner handles if the outline is off. Bounces now map onto the table.', 'good');
+}
+
+// ---------- Overlay on the video ----------
+function draw(now) {
+  const W = view.width, Hh = view.height, sx = W / procW, sy = Hh / procH, lw = Math.max(1, W / 640);
+  const g = vctx;
+  g.save(); if (cfg.mirror) { g.translate(W, 0); g.scale(-1, 1); } g.drawImage(src.el, 0, 0, W, Hh); g.restore();
+  if (cfg.showMask) {
+    const id = mctx.createImageData(procW, procH), q = id.data;
+    for (let i = 0, p = 0; i < N; i++, p += 4) if (maskShow[i]) { q[p] = 255; q[p + 1] = 140; q[p + 2] = 40; q[p + 3] = 175; }
+    mctx.putImageData(id, 0, 0); g.imageSmoothingEnabled = false; g.drawImage(maskCanvas, 0, 0, W, Hh); g.imageSmoothingEnabled = true;
+  }
+  const pts = mode === 'corners' ? tapPts : cfg.corners;
+  if (pts && pts.length) {
+    g.lineJoin = 'round';
+    if (pts.length === 4) {
+      g.beginPath(); pts.forEach((c, i) => i ? g.lineTo(c.x * W, c.y * Hh) : g.moveTo(c.x * W, c.y * Hh)); g.closePath();
+      g.fillStyle = 'rgba(63,134,220,0.14)'; g.fill(); g.strokeStyle = '#3F86DC'; g.lineWidth = lw * 2; g.stroke();
+      const n1 = toFrame(TABLE_L / 2, 0), n2 = toFrame(TABLE_L / 2, TABLE_W);
+      if (n1 && n2) { g.beginPath(); g.moveTo(n1.x * W, n1.y * Hh); g.lineTo(n2.x * W, n2.y * Hh); g.strokeStyle = 'rgba(236,240,244,0.9)'; g.lineWidth = lw * 2; g.setLineDash([lw * 6, lw * 4]); g.stroke(); g.setLineDash([]); }
+    }
+    pts.forEach((c, i) => {
+      g.beginPath(); g.arc(c.x * W, c.y * Hh, lw * 7, 0, Math.PI * 2); g.fillStyle = '#F4F7FA'; g.fill(); g.strokeStyle = '#3F86DC'; g.lineWidth = lw * 2; g.stroke();
+      g.fillStyle = '#0D1218'; g.font = `600 ${11 * lw}px ${'"IBM Plex Sans", sans-serif'}`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(i + 1), c.x * W, c.y * Hh + lw * 0.5);
+    });
+  }
+  if (cfg.showTrail && track.pts.length > 1) {
+    const tp = track.pts; g.lineCap = 'round'; g.lineWidth = lw * 2.5;
+    for (let i = 1; i < tp.length; i++) { g.strokeStyle = `rgba(255,140,40,${(i / tp.length) * 0.85})`; g.beginPath(); g.moveTo(tp[i - 1].x * sx, tp[i - 1].y * sy); g.lineTo(tp[i].x * sx, tp[i].y * sy); g.stroke(); }
+  }
+  for (let i = markers.length - 1; i >= 0; i--) {
+    const m = markers[i], age = (now - m.t) / 700; if (age > 1) { markers.splice(i, 1); continue; }
+    const col = m.kind === 'out' ? '240,82,79' : m.kind === 'hit' ? '255,140,40' : '55,196,122';
+    g.strokeStyle = `rgba(${col},${1 - age})`; g.lineWidth = lw * 3; g.beginPath(); g.arc(m.x * sx, m.y * sy, lw * (8 + 30 * age), 0, Math.PI * 2); g.stroke();
+  }
+  const last = track.pts[track.pts.length - 1];
+  if (track.active && last) {
+    const cx = last.x * sx, cy = last.y * sy, r = Math.max(lw * 7, last.r * sx + lw * 5);
+    g.strokeStyle = '#FF8C28'; g.lineWidth = lw * 2.5; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
+    if (track.speedPx > 2) { g.strokeStyle = 'rgba(255,140,40,0.9)'; g.lineWidth = lw * 2; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + track.vx * sx * 0.12, cy + track.vy * sy * 0.12); g.stroke(); }
+    const label = table.H ? (track.kmhSmooth != null ? `${Math.round(track.kmhSmooth)} km/h` : '') : `${Math.round(track.speedPx * sx)} px/s`;
+    if (label) {
+      g.font = `700 ${15 * lw}px "Barlow Condensed", "Arial Narrow", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'bottom';
+      g.lineWidth = lw * 3; g.strokeStyle = 'rgba(13,18,24,0.85)'; g.strokeText(label, cx, cy - r - lw * 4); g.fillStyle = '#FFFFFF'; g.fillText(label, cx, cy - r - lw * 4);
+    }
+  }
+}
+
+// ---------- Top-down bounce map ----------
+function drawMap() {
+  const c = $('map'), end = cfg.view === 'end'; const cw = end ? 220 : 360, ch = end ? 360 : 220;
+  if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
+  const g = c.getContext('2d'), cs = getComputedStyle(document.documentElement), col = (n) => cs.getPropertyValue(n).trim() || '#888';
+  g.clearRect(0, 0, cw, ch);
+  const pad = 22, w = cw - pad * 2, h = end ? w * TABLE_L / TABLE_W : w * TABLE_W / TABLE_L;
+  const rx = pad, ry = (ch - h) / 2;
+  const pos = (u, v) => end ? { x: rx + v / TABLE_W * w, y: ry + (TABLE_L - u) / TABLE_L * h } : { x: rx + u / TABLE_L * w, y: ry + v / TABLE_W * h };
+  g.fillStyle = col('--table'); g.fillRect(rx, ry, w, h);
+  g.strokeStyle = col('--table-line'); g.lineWidth = 1.5; g.strokeRect(rx + 0.5, ry + 0.5, w - 1, h - 1);
+  g.globalAlpha = 0.5; g.beginPath(); const c1 = pos(0, TABLE_W / 2), c2 = pos(TABLE_L, TABLE_W / 2); g.moveTo(c1.x, c1.y); g.lineTo(c2.x, c2.y); g.lineWidth = 1; g.stroke(); g.globalAlpha = 1;
+  const n1 = pos(TABLE_L / 2, 0), n2 = pos(TABLE_L / 2, TABLE_W); g.beginPath(); g.moveTo(n1.x, n1.y); g.lineTo(n2.x, n2.y); g.lineWidth = 3; g.stroke();
+  g.fillStyle = col('--table-line'); g.globalAlpha = 0.7; g.font = '600 11px "Barlow Condensed", "Arial Narrow", sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  const la = pos(TABLE_L * 0.25, TABLE_W / 2), lb = pos(TABLE_L * 0.75, TABLE_W / 2);
+  g.fillText(sideShort('A').toUpperCase(), la.x, end ? la.y - 12 : la.y - 12); g.fillText(sideShort('B').toUpperCase(), lb.x, lb.y - 12); g.globalAlpha = 1;
+  const placed = stats.bounces.filter((b) => b.u != null);
+  placed.forEach((b, i) => {
+    const p = pos(b.u, b.v); const x = Math.min(cw - 6, Math.max(6, p.x)), y = Math.min(ch - 6, Math.max(6, p.y));
+    const lastOne = i === placed.length - 1;
+    g.globalAlpha = 0.35 + 0.65 * ((i + 1) / placed.length);
+    g.fillStyle = b.in ? col('--good') : col('--bad'); g.beginPath(); g.arc(x, y, lastOne ? 5 : 4, 0, Math.PI * 2); g.fill();
+    if (lastOne) { g.strokeStyle = col('--accent'); g.lineWidth = 2; g.beginPath(); g.arc(x, y, 9, 0, Math.PI * 2); g.stroke(); }
+  });
+  g.globalAlpha = 1;
+  if (!table.H) { g.fillStyle = col('--text'); g.font = '500 12px "IBM Plex Sans", sans-serif'; g.textAlign = 'center'; g.fillText('Set the table to place bounces here', cw / 2, ry + h + 14 > ch - 6 ? ry - 10 : ry + h + 14); }
+}
+
+// ---------- Feedback strip, status, stats ----------
+let fbTimer = 0, fbPersist = { text: 'Warming up', sub: 'The demo feed runs through the same tracker as your camera.', level: 'none' };
+function applyFeedback(f) { $('fbText').textContent = f.text; $('fbSub').textContent = f.sub || ''; $('feedback').dataset.level = f.level || 'none'; }
+function setFeedback(text, sub, level, persistent) {
+  if (persistent) { fbPersist = { text, sub, level }; if (!fbTimer) applyFeedback(fbPersist); return; }
+  applyFeedback({ text, sub, level }); clearTimeout(fbTimer);
+  fbTimer = setTimeout(() => { fbTimer = 0; applyFeedback(fbPersist); }, 2200);
+}
+function setStatus(state, text) { const p = $('statusPill'); p.dataset.state = state; p.textContent = text; }
+function updateStats() {
+  const real = !!table.H;
+  $('tSpeedUnit').textContent = real ? 'km/h, estimated' : 'px/s, set the table for km/h';
+  $('tTopUnit').textContent = real ? 'km/h, estimated' : 'px/s';
+  const live = track.active && track.pts.length > 2;
+  $('tSpeed').textContent = live ? (real ? (track.kmhSmooth != null ? String(Math.round(track.kmhSmooth)) : '—') : String(Math.round(track.speedPx * src.w / procW))) : '—';
+  $('tTop').textContent = stats.top != null ? String(Math.round(stats.top)) : '—';
+  $('tBest').textContent = String(stats.best); $('tBounceA').textContent = String(stats.bounceA); $('tBounceB').textContent = String(stats.bounceB); $('tOut').textContent = String(stats.out);
+  $('fbRally').textContent = String(rally.hits);
+  $('lblA').textContent = `${sideShort('A')} bounces`; $('lblB').textContent = `${sideShort('B')} bounces`;
+  $('fps').textContent = `${Math.round(fps)} fps · ${procW}×${procH}`;
+}
+function updateTableUI() {
+  $('tableSub').textContent = table.H ? `Set · ${cfg.view === 'end' ? 'end' : 'side'} view` : 'Not set';
+  $('mapNote').textContent = table.H ? '2.74 m × 1.525 m, seen from above' : 'Bounces appear once the table is set';
+  drawMap(); updateStats();
+}
+
+// ---------- Sound and voice ----------
+let actx = null;
+function ensureAudio() { if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { actx = null; } } if (actx && actx.state === 'suspended') actx.resume().catch(() => {}); }
+function tone(freq, dur) {
+  if (!cfg.sound || !actx || actx.state !== 'running') return;
+  const o = actx.createOscillator(), gn = actx.createGain(), t0 = actx.currentTime;
+  o.type = 'sine'; o.frequency.value = freq;
+  gn.gain.setValueAtTime(0.0001, t0); gn.gain.exponentialRampToValueAtTime(0.22, t0 + 0.005); gn.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(gn).connect(actx.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function speak(text) { if (!cfg.voice || !('speechSynthesis' in window)) return; try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(text)); } catch (e) { /* no voices */ } }
+
+// ---------- Camera ----------
+const inIframe = window.self !== window.top;
+const hasRVFC = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+let pending = null;
+function cancelPending() { if (!pending) return; if (pending.kind === 'rvfc') video.cancelVideoFrameCallback(pending.id); else cancelAnimationFrame(pending.id); pending = null; }
+function schedule() {
+  cancelPending();
+  if (src.kind === 'camera' && hasRVFC) pending = { kind: 'rvfc', id: video.requestVideoFrameCallback(tick) };
+  else pending = { kind: 'raf', id: requestAnimationFrame(tick) };
+}
+function tick() { pending = null; try { processFrame(performance.now()); } catch (e) { console.error(e); } schedule(); }
+
+function explainCameraError(e) {
+  switch (e && e.name) {
+    case 'NotAllowedError': case 'SecurityError': case 'PermissionDeniedError':
+      return inIframe ? 'Camera access is blocked inside this panel. Use "Save this page as a file" above and open the saved file.' : 'Camera access was denied. Allow the camera for this page in the browser address bar, then try again.';
+    case 'NotFoundError': case 'OverconstrainedError': return 'No usable camera was found. Plug one in or pick another camera from the list.';
+    case 'NotReadableError': case 'AbortError': return 'The camera is busy in another app. Close that app and try again.';
+    default: return `The camera could not start (${(e && e.name) || 'unknown error'}).`;
+  }
+}
+async function startCamera(deviceId) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setStatus('error', 'No camera API'); setFeedback('Camera unavailable', 'This browser cannot open a camera here. Use Chrome, Edge, Safari or Firefox over https.', 'bad', true); return; }
+  ensureAudio(); stopStream(); setStatus('starting', 'Starting camera'); $('btnStart').disabled = true;
+  const vc = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } };
+  if (deviceId) vc.deviceId = { exact: deviceId }; else vc.facingMode = 'user';
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: vc, audio: false }); }
+  catch (e) { $('btnStart').disabled = false; setStatus('error', 'Camera blocked'); setFeedback('Camera did not start', explainCameraError(e), 'bad', true); if (inIframe) showFrameNotice(); return; }
+  video.srcObject = stream;
+  try { await video.play(); } catch (e) { /* autoplay policies; the stream still renders once metadata arrives */ }
+  if (!video.videoWidth) await new Promise((res) => { const done = () => { video.removeEventListener('loadedmetadata', done); res(); }; video.addEventListener('loadedmetadata', done); setTimeout(done, 3000); });
+  $('btnStart').disabled = false;
+  if (!video.videoWidth) { stopStream(); setStatus('error', 'No video'); setFeedback('Camera gave no video', 'The camera opened but sent no frames. Try another camera from the list.', 'bad', true); return; }
+  setSource('camera'); resetEvents();
+  setStatus('live', `Live · ${video.videoWidth}×${video.videoHeight}`);
+  $('btnStart').textContent = 'Stop camera'; $('btnDemo').setAttribute('aria-pressed', 'false');
+  setFeedback('Searching for the ball', 'Hold the ball up to the camera to check it is picked up. Then set the table.', 'none', true);
+  const trackEl = stream.getVideoTracks()[0]; if (trackEl) trackEl.addEventListener('ended', () => { if (src.kind === 'camera') stopCamera(); });
+  listDevices(); schedule();
+}
+function stopStream() { if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; } video.srcObject = null; }
+function stopCamera() {
+  stopStream(); setSource('demo'); demo.reset(7); resetEvents();
+  setStatus('demo', 'Demo feed'); $('btnStart').textContent = 'Start camera'; $('btnDemo').setAttribute('aria-pressed', 'true');
+  setFeedback('Demo feed', 'The camera is off. The demo runs through the same tracker.', 'none', true); schedule();
+}
+async function listDevices() {
+  try {
+    const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+    const sel = $('camSel'), cur = sel.value; sel.innerHTML = '';
+    const opt = (v, t) => { const o = document.createElement('option'); o.value = v; o.textContent = t; sel.appendChild(o); };
+    opt('', 'Default camera'); devs.forEach((d, i) => opt(d.deviceId, d.label || `Camera ${i + 1}`));
+    if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  } catch (e) { /* enumeration not available */ }
+}
+
+// ---------- Pointer interaction: corner taps, drags and colour picking ----------
+let mode = 'none', tapPts = [], drag = null;
+const CORNER_NAMES = { side: ['top-left', 'top-right', 'bottom-right', 'bottom-left'], end: ['far-left', 'far-right', 'near-right', 'near-left'] };
+function setMode(m) {
+  mode = m; tapPts = []; $('viewport').dataset.mode = m;
+  $('btnPickBall').setAttribute('aria-pressed', String(m === 'pickBall')); $('btnPickTable').setAttribute('aria-pressed', String(m === 'pickTable')); $('btnCorners').setAttribute('aria-pressed', String(m === 'corners'));
+  updateHint();
+}
+function updateHint() {
+  const hint = $('hint'); if (mode === 'none') { hint.hidden = true; return; } hint.hidden = false;
+  const names = CORNER_NAMES[cfg.view === 'end' ? 'end' : 'side'];
+  $('hintText').textContent = mode === 'corners' ? `Tap the ${names[tapPts.length]} corner of the table (${tapPts.length + 1} of 4)` : mode === 'pickBall' ? 'Tap the ball in the video to sample its colour' : 'Tap the table surface to sample its colour';
+}
+function toNorm(e) { const r = view.getBoundingClientRect(); return { x: Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y: Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)) }; }
+function nearestCorner(n) {
+  if (!cfg.corners) return -1; const r = view.getBoundingClientRect(); let best = -1, bd = 20;
+  cfg.corners.forEach((c, i) => { const d = Math.hypot((c.x - n.x) * r.width, (c.y - n.y) * r.height); if (d < bd) { bd = d; best = i; } });
+  return best;
+}
+function samplePick(n, what) {
+  if (!lastData) return; const px = Math.round(n.x * procW), py = Math.round(n.y * procH); let r = 0, g = 0, b = 0, k = 0;
+  for (let y = py - 2; y <= py + 2; y++) for (let x = px - 2; x <= px + 2; x++) { if (x < 0 || y < 0 || x >= procW || y >= procH) continue; const p = (y * procW + x) * 4; r += lastData[p]; g += lastData[p + 1]; b += lastData[p + 2]; k++; }
+  if (!k) return; const hsv = rgbToHsv(r / k, g / k, b / k), S = hsv.s * 100, V = hsv.v * 100;
+  const wrap = (h) => ((h % 360) + 360) % 360;
+  if (what === 'ball') {
+    if (S < 22) Object.assign(cfg, { hueMin: 0, hueMax: 360, satMin: 0, satMax: Math.min(100, Math.round(S + 18)), valMin: Math.max(30, Math.round(V - 25)), motionGate: true });
+    else Object.assign(cfg, { hueMin: Math.round(wrap(hsv.h - 14)), hueMax: Math.round(wrap(hsv.h + 14)), satMin: Math.max(0, Math.round(S - 25)), satMax: 100, valMin: Math.max(10, Math.round(V - 30)) });
+    cfg.preset = 'custom'; setFeedback('Ball colour sampled', `Hue ${Math.round(hsv.h)}°, saturation ${Math.round(S)}%, brightness ${Math.round(V)}%. Turn on the colour mask to check it.`, 'good');
+  } else {
+    Object.assign(cfg, { tHueMin: Math.round(wrap(hsv.h - 18)), tHueMax: Math.round(wrap(hsv.h + 18)), tSatMin: Math.max(8, Math.round(S - 25)), tValMin: Math.max(5, Math.round(V - 35)), tableColor: 'custom' });
+    wantTableDetect = true;
+  }
+  save(); syncControls();
+}
+view.addEventListener('pointerdown', (e) => {
+  const n = toNorm(e); ensureAudio();
+  if (mode === 'corners') {
+    tapPts.push(n);
+    if (tapPts.length === 4) { cfg.corners = tapPts.slice(); save(); rebuildTable(); setMode('none'); setFeedback('Table set', 'Drag a corner handle any time to adjust it.', 'good'); }
+    else updateHint();
+  } else if (mode === 'pickBall') { samplePick(n, 'ball'); setMode('none'); }
+  else if (mode === 'pickTable') { samplePick(n, 'table'); setMode('none'); }
+  else { const i = nearestCorner(n); if (i >= 0) { drag = i; try { view.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } } }
+});
+view.addEventListener('pointermove', (e) => { if (drag == null) return; cfg.corners[drag] = toNorm(e); rebuildTable(); });
+const endDrag = () => { if (drag == null) return; drag = null; save(); };
+view.addEventListener('pointerup', endDrag); view.addEventListener('pointercancel', endDrag);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && mode !== 'none') setMode('none'); });
+
+// ---------- Controls ----------
+const BALL_PRESETS = { orange: { hueMin: 8, hueMax: 45, satMin: 40, satMax: 100, valMin: 40, motionGate: false }, white: { hueMin: 0, hueMax: 360, satMin: 0, satMax: 25, valMin: 72, motionGate: true } };
+const TABLE_PRESETS = { blue: { tHueMin: 195, tHueMax: 250, tSatMin: 30, tValMin: 15 }, green: { tHueMin: 80, tHueMax: 170, tSatMin: 25, tValMin: 12 } };
+const RANGES = ['hueMin', 'hueMax', 'satMin', 'satMax', 'valMin', 'radMin', 'radMax', 'motionThr'];
+const CHECKS = ['motionGate', 'showMask', 'showTrail', 'sound', 'voice'];
+function syncControls() {
+  RANGES.forEach((k) => { $(k).value = cfg[k]; }); CHECKS.forEach((k) => { $(k).checked = !!cfg[k]; });
+  $('procW').value = String(cfg.procW);
+  $('vHue').textContent = cfg.hueMin <= 0 && cfg.hueMax >= 360 ? 'any' : `${cfg.hueMin}–${cfg.hueMax}°`;
+  $('vSat').textContent = `${cfg.satMin}–${cfg.satMax}%`; $('vVal').textContent = `${cfg.valMin}%`; $('vSize').textContent = `${cfg.radMin}–${cfg.radMax} px`; $('vMotion').textContent = String(cfg.motionThr);
+  document.querySelectorAll('[data-preset]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.preset === cfg.preset)));
+  document.querySelectorAll('[data-table]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.table === cfg.tableColor)));
+  document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === cfg.view)));
+  $('btnMirror').setAttribute('aria-pressed', String(!!cfg.mirror));
+  $('ballSub').textContent = cfg.preset === 'orange' ? 'Orange' : cfg.preset === 'white' ? 'White' : 'Custom colour';
+}
+RANGES.forEach((k) => $(k).addEventListener('input', () => {
+  cfg[k] = Number($(k).value);
+  if (k === 'satMin' && cfg.satMax < cfg.satMin) cfg.satMax = cfg.satMin; if (k === 'satMax' && cfg.satMin > cfg.satMax) cfg.satMin = cfg.satMax;
+  if (k === 'radMin' && cfg.radMax < cfg.radMin) cfg.radMax = cfg.radMin; if (k === 'radMax' && cfg.radMin > cfg.radMax) cfg.radMin = cfg.radMax;
+  if (k !== 'motionThr' && k !== 'radMin' && k !== 'radMax') cfg.preset = 'custom';
+  save(); syncControls();
+}));
+CHECKS.forEach((k) => $(k).addEventListener('change', () => { cfg[k] = $(k).checked; save(); if (k === 'voice' && cfg.voice) speak('Voice on'); }));
+$('procW').addEventListener('change', () => { cfg.procW = Number($('procW').value); save(); resizeForSource(); });
+document.querySelectorAll('[data-preset]').forEach((b) => b.addEventListener('click', () => { Object.assign(cfg, BALL_PRESETS[b.dataset.preset]); cfg.preset = b.dataset.preset; save(); syncControls(); }));
+document.querySelectorAll('[data-table]').forEach((b) => b.addEventListener('click', () => { Object.assign(cfg, TABLE_PRESETS[b.dataset.table]); cfg.tableColor = b.dataset.table; save(); syncControls(); wantTableDetect = true; }));
+document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => { cfg.view = b.dataset.view; save(); syncControls(); rebuildTable(); updateHint(); }));
+$('btnMirror').addEventListener('click', () => {
+  cfg.mirror = !cfg.mirror;
+  if (cfg.corners) { const f = (c) => ({ x: 1 - c.x, y: c.y }); const k = cfg.corners; cfg.corners = [f(k[1]), f(k[0]), f(k[3]), f(k[2])]; }
+  save(); syncControls(); rebuildTable(); track.pts.length = 0; track.active = false; resetEvents();
+});
+$('btnStart').addEventListener('click', () => { if (src.kind === 'camera') stopCamera(); else startCamera($('camSel').value); });
+$('btnDemo').addEventListener('click', () => { if (src.kind === 'camera') stopCamera(); });
+$('camSel').addEventListener('change', () => { if (src.kind === 'camera') startCamera($('camSel').value); });
+$('btnReset').addEventListener('click', () => { resetStats(); setFeedback('Stats reset', 'Bounce counts, rally and speeds start from zero.', 'none'); });
+$('btnDetectTable').addEventListener('click', () => { wantTableDetect = true; });
+$('btnCorners').addEventListener('click', () => setMode(mode === 'corners' ? 'none' : 'corners'));
+$('btnClearTable').addEventListener('click', () => { cfg.corners = null; save(); rebuildTable(); setFeedback('Table cleared', 'Speeds fall back to pixels per second until the table is set again.', 'none'); });
+$('btnPickBall').addEventListener('click', () => setMode(mode === 'pickBall' ? 'none' : 'pickBall'));
+$('btnPickTable').addEventListener('click', () => setMode(mode === 'pickTable' ? 'none' : 'pickTable'));
+$('hintCancel').addEventListener('click', () => setMode('none'));
+document.addEventListener('pointerdown', ensureAudio);
+try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', drawMap); } catch (e) { /* older browsers */ }
+new MutationObserver(drawMap).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+// ---------- Start ----------
+// Inside another page (the Claude panel, for instance) the camera is usually blocked by the embedding page's permissions
+// policy, and the frame cannot open new tabs. Offer the page itself as a file to open directly.
+function cameraAllowedHere() {
+  try { const pol = document.permissionsPolicy || document.featurePolicy; if (pol && typeof pol.allowsFeature === 'function') return pol.allowsFeature('camera'); } catch (e) { /* ignore */ }
+  return !inIframe;
+}
+function showFrameNotice() { $('frameNotice').hidden = false; }
+$('frameNotice').hidden = !(inIframe && !cameraAllowedHere());
+if (inIframe && window.claude && typeof window.claude.use === 'function') {
+  // When saving is not offered in this view, say so up front instead of after a click
+  window.claude.use('downloads').then((d) => { if (!d) { $('btnSavePage').hidden = true; showUrlBox('Saving is not available in this view. Ask Claude for the file in the chat, or copy this address into a new tab:'); } }).catch(() => {});
+}
+function standaloneHtml() {
+  const root = document.documentElement.cloneNode(true);
+  root.removeAttribute('data-theme');
+  root.querySelectorAll('script').forEach((el) => { if (el.id !== 'app') el.remove(); });
+  root.querySelectorAll('canvas').forEach((el) => { el.removeAttribute('style'); });
+  const notice = root.querySelector('#frameNotice'); if (notice) notice.hidden = true;
+  return '<!doctype html>\n' + root.outerHTML;
+}
+function showUrlBox(text) { $('noticeUrl').hidden = false; $('noticeUrlText').textContent = text; $('noticeUrlInput').value = location.href; }
+$('btnSavePage').addEventListener('click', async () => {
+  const btn = $('btnSavePage'); btn.disabled = true;
+  try {
+    const downloads = window.claude && typeof window.claude.use === 'function' ? await window.claude.use('downloads') : null;
+    if (!downloads) { showUrlBox('Saving is not available in this view. Copy this address into a new tab, or ask Claude for the file:'); return; }
+    await downloads.save({ filename: 'rally-eye.html', data: standaloneHtml() });
+    setFeedback('Saved', 'Open rally-eye.html from your downloads folder. Start the camera there and allow it when the browser asks.', 'good', true);
+  } catch (e) {
+    if (!e || e.code !== 'declined') showUrlBox('The file could not be saved here. Copy this address into a new tab, or ask Claude for the file:');
+  } finally { btn.disabled = false; }
+});
+$('btnOpenTop').addEventListener('click', () => {
+  let w = null; try { w = window.open(location.href, '_blank', 'noopener'); } catch (e) { w = null; }
+  if (!w) showUrlBox('The panel blocked the new tab. Copy this address into a new tab:');
+});
+if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) listDevices();
+syncControls(); setSource('demo'); demo.reset(7); rebuildTable(); updateStats(); schedule();
+window.RallyEye = { cfg, stats, track, rally, table, demo, resetStats, standaloneHtml, get proc() { return { w: procW, h: procH }; }, get src() { return src; } };
+})();
+</script>
