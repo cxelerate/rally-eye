@@ -401,6 +401,8 @@
         <label class="check"><input type="checkbox" id="zoneOn"> Only track balls over the table (the play zone)</label>
         <div class="range"><div class="row"><span>Play zone height above the table</span><span class="val" id="vZone">0.8 m</span></div>
           <input type="range" id="zoneH" min="0.3" max="2" step="0.1" value="0.8" aria-label="Play zone height"></div>
+        <div class="range"><div class="row"><span>Call out if the ball has not returned within</span><span class="val" id="vReturn">3 s</span></div>
+          <input type="range" id="returnWin" min="1" max="6" step="0.5" value="3" aria-label="Return window in seconds"></div>
         <p class="fb-sub">Drag the corner handles on the video to fine-tune. With the table set, speeds convert to km/h, bounces are placed on the map, and balls on the floor are ignored.</p>
       </div>
     </details>
@@ -414,6 +416,7 @@
           <input type="range" id="motionThr" min="5" max="80" step="1" value="28" aria-label="Motion threshold"></div>
         <label class="check"><input type="checkbox" id="showMask"> Show what the tracker sees (colour mask)</label>
         <label class="check"><input type="checkbox" id="showTrail" checked> Draw the ball trail</label>
+        <div class="actions"><button class="btn" type="button" id="btnSnapshot">Save a snapshot of what the camera sees</button></div>
       </div>
     </details>
 
@@ -456,7 +459,7 @@ const BALL_R = 0.02;      // metres, a regulation 40 mm ball
 // ---------- Settings (persisted) ----------
 const defaults = {
   preset: 'white', hueMin: 0, hueMax: 360, satMin: 0, satMax: 22, valMin: 75,
-  radMin: 1, radMax: 14, motionGate: true, motionThr: 28, sizeAuto: true, zoneOn: true, zoneH: 0.8,
+  radMin: 1, radMax: 14, motionGate: true, motionThr: 28, sizeAuto: true, zoneOn: true, zoneH: 0.8, returnWin: 3,
   tableColor: 'blue', tHueMin: 195, tHueMax: 250, tSatMin: 30, tValMin: 15,
   view: 'side', mirror: false, procW: 480, showMask: false, showTrail: true, sound: true, voice: false,
   corners: null // four {x, y} pairs, normalised 0..1 in frame coordinates: top-left, top-right, bottom-right, bottom-left
@@ -529,7 +532,8 @@ function updateZone() {
   const xs = cfg.corners.map((c) => c.x * procW), ys = cfg.corners.map((c) => c.y * procH);
   const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys), tw = maxx - minx, th = maxy - miny;
   const mpp = mppAt((cfg.corners[0].x + cfg.corners[1].x) / 2, (cfg.corners[0].y + cfg.corners[1].y) / 2) || TABLE_L / Math.max(1, tw);
-  table.zone = { x0: minx - tw * 0.15, x1: maxx + tw * 0.15, y0: miny - cfg.zoneH / mpp, y1: maxy + Math.max(th * 0.15, 4) };
+  const side = Math.max(tw * 0.1, 0.5 / mpp); // half a metre past each end, where most returns are struck
+  table.zone = { x0: minx - side, x1: maxx + side, y0: miny - cfg.zoneH / mpp, y1: maxy + Math.max(th * 0.15, 4) };
 }
 function toTable(nx, ny) { return table.H ? applyH(table.H, nx, ny) : null; }        // returns {x: along length, y: across}
 function toFrame(u, v) { return table.Hinv ? applyH(table.Hinv, u, v) : null; }       // normalised frame coords
@@ -545,39 +549,41 @@ let stream = null;
 // The demo feed: a synthetic side view of a table with a physically simulated ball, run through the real tracker.
 const demo = (() => {
   const c = document.createElement('canvas'); c.width = 960; c.height = 540; const g = c.getContext('2d');
-  const quad = [{ x: 212, y: 300 }, { x: 748, y: 300 }, { x: 812, y: 372 }, { x: 148, y: 372 }]; // table top in the demo frame
+  const quad = [{ x: 300, y: 300 }, { x: 660, y: 300 }, { x: 700, y: 372 }, { x: 260, y: 372 }]; // table top in the demo frame
   const Hq = invert3(homography(quad, [{ x: 0, y: 0 }, { x: TABLE_L, y: 0 }, { x: TABLE_L, y: TABLE_W }, { x: 0, y: TABLE_W }]));
   let rnd = mulberry32(7);
   const BR = 0.028; // demo ball radius in metres, a touch over life size so it reads on screen
   const ball = { x: 0.2, y: 0.76, z: 0.25, vx: 3.2, vy: 0, vz: 1.4 };
-  const st = { lastT: 0, pause: 0, vanishIn: 0, hits: 0, bounces: [], paddleL: 0, paddleR: 0, serveFrom: 'B', letThrough: false };
+  const st = { lastT: 0, pause: 0, vanishIn: 0, hits: 0, bounces: [], paddleL: 0, paddleR: 0, serveFrom: 'B', letThrough: false, deep: false, deepHits: 0, serving: null, serveZ: 0, floorOut: 0 };
   function project(x, y, z) {
-    const p = applyH(Hq, x, y); const depth = (p.y - 300) / 72; const ppm = 226 + 52 * depth; // pixels per metre grows toward the camera
+    const p = applyH(Hq, x, y); const depth = (p.y - 300) / 72; const ppm = 131 + 30 * depth; // pixels per metre grows toward the camera
     return { x: p.x, y: p.y - z * ppm, r: BR * ppm };
   }
   function serve(from) {
     ball.x = from === 'A' ? 0.15 : TABLE_L - 0.15; ball.y = 0.45 + rnd() * 0.6; ball.z = 0.2 + rnd() * 0.1;
-    ball.vx = (from === 'A' ? 1 : -1) * (2.8 + rnd() * 0.6); ball.vy = (rnd() - 0.5) * 0.4; ball.vz = 0.3 + rnd() * 0.3; st.hits = 0; st.letThrough = false;
+    ball.vx = 0; ball.vy = 0; ball.vz = 2.0 + rnd() * 0.4; st.serving = from; st.serveZ = ball.z; st.hits = 0; st.letThrough = false; st.deep = false;
   }
   function step(now) {
     if (!st.lastT) st.lastT = now; let dt = Math.min(0.05, (now - st.lastT) / 1000); st.lastT = now;
     if (st.pause > 0) { st.pause -= dt; if (st.pause <= 0) serve(st.serveFrom); return; }
     ball.vz -= 9.81 * dt; ball.x += ball.vx * dt; ball.y += ball.vy * dt; ball.z += ball.vz * dt;
+    if (st.serving && ball.vz < 0 && ball.z <= st.serveZ + 0.02) { ball.vx = (st.serving === 'A' ? 1 : -1) * (2.8 + rnd() * 0.6); ball.vy = (rnd() - 0.5) * 0.4; ball.vz = 0.3 + rnd() * 0.3; st.serving = null; }
     const onTable = ball.x >= 0 && ball.x <= TABLE_L && ball.y >= 0 && ball.y <= TABLE_W;
     if (ball.z <= BR && onTable && ball.vz < 0) { ball.z = BR; ball.vz = -ball.vz * 0.86; st.bounces.push({ x: ball.x, y: ball.y, t: now, out: false }); }
-    if (ball.z <= BR - 0.22 && ball.vz < 0) { ball.z = BR - 0.22; ball.vz = -ball.vz * 0.4; if (st.vanishIn <= 0) { st.bounces.push({ x: ball.x, y: ball.y, t: now, out: true }); st.vanishIn = 0.5; } }
+    if (ball.z <= BR - 0.22 && ball.vz < 0) { ball.z = BR - 0.22; ball.vz = -ball.vz * 0.4; if (st.vanishIn <= 0) { st.bounces.push({ x: ball.x, y: ball.y, t: now, out: true }); st.floorOut++; st.vanishIn = 0.5; } }
     if (st.vanishIn > 0) { st.vanishIn -= dt; if (st.vanishIn <= 0) { st.pause = 1.2; st.serveFrom = ball.x < TABLE_L / 2 ? 'A' : 'B'; } }
     // paddles return the ball just past each end; every so often a wild return sails long and lands on the floor
-    const past = ball.x < -0.3 && ball.vx < 0 || ball.x > TABLE_L + 0.3 && ball.vx > 0;
+    const reach = st.deep ? 1.1 : 0.3; // a deep return is struck over a metre behind the end line, outside the play zone
+    const past = ball.x < -reach && ball.vx < 0 || ball.x > TABLE_L + reach && ball.vx > 0;
     if (past && st.letThrough) { ball.vx *= 0.05; ball.vy = 0; } // a long ball hits the player and drops to the floor
     else if (past && ball.z > -0.35) {
-      st.hits++; const wild = st.hits % 7 === 0; st.letThrough = wild;
+      st.hits++; const wild = st.hits % 7 === 0; st.letThrough = wild; if (st.deep) st.deepHits++; st.deep = !wild && st.hits % 5 === 0;
       const dir = ball.x < TABLE_L / 2 ? 1 : -1;
       ball.z = Math.min(0.45, Math.max(0.15, ball.z));
       ball.vx = dir * (wild ? 5.6 + rnd() * 0.6 : 4.5 + rnd()); ball.vz = wild ? 2.0 + rnd() * 0.3 : 1.0 + rnd() * 0.4; ball.vy = (rnd() - 0.5) * 0.5;
       if (dir > 0) st.paddleL = 1; else st.paddleR = 1;
     } else if (past) { st.pause = 1.0; st.serveFrom = ball.x < TABLE_L / 2 ? 'A' : 'B'; }
-    if (st.bounces.length > 40) st.bounces.shift();
+    if (st.bounces.length > 400) st.bounces.shift();
     st.paddleL = Math.max(0, st.paddleL - dt * 3); st.paddleR = Math.max(0, st.paddleR - dt * 3);
   }
   function render(now) {
@@ -589,13 +595,13 @@ const demo = (() => {
     g.fillStyle = '#1E4F8E'; g.beginPath(); quad.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)); g.closePath(); g.fill();
     g.strokeStyle = '#E9EEF3'; g.lineWidth = 2; g.stroke();
     g.beginPath(); g.moveTo((quad[0].x + quad[3].x) / 2, (quad[0].y + quad[3].y) / 2); g.lineTo((quad[1].x + quad[2].x) / 2, (quad[1].y + quad[2].y) / 2); g.lineWidth = 1; g.stroke();
-    g.fillStyle = '#23282E'; g.fillRect(148, 372, 664, 12);
-    g.fillStyle = '#2A2F35'; g.fillRect(186, 384, 14, 90); g.fillRect(760, 384, 14, 90);
+    g.fillStyle = '#23282E'; g.fillRect(260, 372, 440, 12);
+    g.fillStyle = '#2A2F35'; g.fillRect(290, 384, 12, 90); g.fillRect(658, 384, 12, 90);
     // net
     const netTop = project(TABLE_L / 2, 0, NET_H), netBot = project(TABLE_L / 2, TABLE_W, 0);
     g.fillStyle = 'rgba(236,240,244,0.75)'; g.fillRect(netTop.x - 3, netTop.y, 6, netBot.y - netTop.y); g.fillStyle = '#E9EEF3'; g.fillRect(netTop.x - 5, netTop.y - 2, 10, 3);
     // players' paddles, red rubber
-    const pl = project(-0.35, 0.8, 0.2 + 0.15 * st.paddleL), pr = project(TABLE_L + 0.35, 0.8, 0.2 + 0.15 * st.paddleR);
+    const pl = project(st.deep && ball.vx < 0 ? -1.15 : -0.35, 0.8, 0.2 + 0.15 * st.paddleL), pr = project(st.deep && ball.vx > 0 ? TABLE_L + 1.15 : TABLE_L + 0.35, 0.8, 0.2 + 0.15 * st.paddleR);
     for (const p of [pl, pr]) { g.fillStyle = '#B4262E'; g.beginPath(); g.ellipse(p.x, p.y, 16, 20, 0, 0, Math.PI * 2); g.fill(); g.fillStyle = '#6E4A2D'; g.fillRect(p.x - 4, p.y + 16, 8, 30); }
     // ball with motion blur along its velocity
     if (st.pause <= 0) {
@@ -635,9 +641,10 @@ function resizeForSource() {
 // ---------- Tracking state ----------
 const track = { pts: [], vx: 0, vy: 0, active: false, lost: 0, lastSeen: 0, speedPx: 0, kmh: null, kmhSmooth: null, r: 0, sawBounce: false, lastOutT: -1e9 };
 const cand = { x: 0, y: 0, vx: 0, vy: 0, t: 0, n: 0, r: 0, x0: 0, y0: 0 }; // a tentative ball: promoted after three coherent, moving frames
+const pend = { active: false, t: 0, side: 'A', dir: 0, where: '' }; // the ball left the table and may still be returned
 let candAvg = 0, hintMode = '';
 const ev = { yDir: 0, yRun: 0, low: null, pendBounce: null, queued: null, xDir: 0, xRun: 0, pendHit: null, lastBounceT: -1e9, lastHitT: -1e9 };
-const stats = { bounceA: 0, bounceB: 0, out: 0, best: 0, top: null, bounces: [], frames: 0 };
+const stats = { bounceA: 0, bounceB: 0, out: 0, best: 0, top: null, bounces: [], frames: 0, returns: 0 };
 const rally = { hits: 0, hitsSince: 0, lastBounceSide: null };
 const markers = []; // transient rings drawn on the video
 let fps = 0, lastFrameT = 0;
@@ -646,7 +653,7 @@ let wantTableDetect = false;
 function resetEvents() { ev.yDir = 0; ev.yRun = 0; ev.low = null; ev.pendBounce = null; ev.queued = null; ev.xDir = 0; ev.xRun = 0; ev.pendHit = null; }
 function resetStats() {
   stats.bounceA = 0; stats.bounceB = 0; stats.out = 0; stats.best = 0; stats.top = null; stats.bounces.length = 0;
-  rally.hits = 0; rally.hitsSince = 0; rally.lastBounceSide = null; markers.length = 0; resetEvents(); updateStats(); drawMap();
+  rally.hits = 0; rally.hitsSince = 0; rally.lastBounceSide = null; markers.length = 0; pend.active = false; stats.returns = 0; resetEvents(); updateStats(); drawMap();
 }
 
 // ---------- Per-frame colour segmentation ----------
@@ -786,8 +793,13 @@ function processFrame(now) {
     if (b) { const dt = (now - cand.t) / 1000; if (dt > 0) { cand.vx = (b.cx - cand.x) / dt; cand.vy = (b.cy - cand.y) / dt; } cand.n++; }
     else { b = pickBall(blobs, null, 0, 0); cand.n = b ? 1 : 0; cand.vx = 0; cand.vy = 0; }
     if (b) { if (cand.n === 1) { cand.x0 = b.cx; cand.y0 = b.cy; } cand.x = b.cx; cand.y = b.cy; cand.t = now; cand.r = Math.min(b.w, b.h) / 2; }
-    if (cand.n >= 3 && Math.hypot(cand.x - cand.x0, cand.y - cand.y0) >= 2) { track.lost = 99; track.pts.length = 0; track.sawBounce = false; updateTrack(b.cx, b.cy, now, b); }
-    if (rally.hits > 0 && last && now - last.t > 2000) endRally('the ball left the frame');
+    if (cand.n >= 3 && Math.hypot(cand.x - cand.x0, cand.y - cand.y0) >= 2) {
+      const returned = pend.active && isReturn(b, cand);
+      track.lost = 99; track.pts.length = 0; track.sawBounce = false; updateTrack(b.cx, b.cy, now, b);
+      if (pend.active) { if (returned) ballReturned(); else callOut(pend.where, 'a new ball came into play'); }
+    }
+    if (pend.active && now - pend.t > cfg.returnWin * 1000) callOut(pend.where, `no return within ${cfg.returnWin} s`);
+    else if (!pend.active && rally.hits > 0 && last && now - last.t > 2000) endRally('the ball left the frame');
     if (src.kind === 'camera') {
       const mode = candAvg > 3 ? 'many' : nCand === 0 && candAvg < 0.2 ? 'none' : '';
       if (mode !== hintMode) {
@@ -886,14 +898,33 @@ function fireHit(p) {
   updateStats();
 }
 // The ball vanished. If it was last seen beyond the table's edges, it left the table: that is out.
+// The ball vanished. Beyond the table's edge it is still live: a player may return it from outside the play zone,
+// so a return window opens and out is called only when nothing comes back in time.
 function ballLost(last) {
   const m = table.H && last ? toTable(last.x / procW, (last.y + (last.hh || 0)) / procH) : null;
   const beyond = m && (m.x < -0.1 || m.x > TABLE_L + 0.1 || m.y < -0.1 || m.y > TABLE_W + 0.1);
   if (beyond && (rally.hits > 0 || track.sawBounce) && performance.now() - track.lastOutT > 1500) {
-    stats.out++; tone(200, 0.16); speak('Out');
-    const where = m.x < -0.1 ? (cfg.view === 'end' ? 'short of the near end' : 'past the left end') : m.x > TABLE_L + 0.1 ? (cfg.view === 'end' ? 'past the far end' : 'past the right end') : 'wide of the side line';
-    endRally('out', true); setFeedback('Out', `The ball left the table ${where}. Waiting for the next serve.`, 'bad', true);
+    pend.active = true; pend.t = performance.now(); pend.side = sideOf(m.x); pend.dir = Math.sign(cfg.view === 'end' ? track.vy : track.vx) || 0;
+    pend.where = m.x < -0.1 ? (cfg.view === 'end' ? 'short of the near end' : 'past the left end') : m.x > TABLE_L + 0.1 ? (cfg.view === 'end' ? 'past the far end' : 'past the right end') : 'wide of the side line';
+    setFeedback('Ball beyond the table', `Still in play if it comes back. Out unless it returns within ${cfg.returnWin} s.`, 'warn', true);
   } else setFeedback('Waiting for the next serve', table.H ? 'Ball out of view. A new moving ball over the table starts the next point.' : 'Ball out of view. Set the table to limit tracking to it.', 'none', true);
+}
+// A returning ball comes back from the end it left, heading the other way; anything else is a new point.
+function isReturn(b, c) {
+  const m = toTable(b.cx / procW, b.cy / procH); if (!m) return false;
+  if (sideOf(m.x) !== pend.side) return false;
+  const along = cfg.view === 'end' ? c.vy : c.vx, dir = Math.sign(along) || 0;
+  const mpp = mppAt(b.cx / procW, b.cy / procH); const speed = mpp ? Math.abs(along) * mpp : 0; // metres per second along the table
+  return dir !== 0 && dir !== pend.dir && speed >= 1.0;
+}
+function ballReturned() {
+  pend.active = false; stats.returns++; rally.hits++; rally.hitsSince++; if (rally.hits > stats.best) stats.best = rally.hits;
+  if (rally.hits % 5 === 0) speak(String(rally.hits));
+  setFeedback(`Returned · rally ${rally.hits}`, 'Played back from beyond the table.', 'accent'); updateStats();
+}
+function callOut(where, why) {
+  pend.active = false; stats.out++; tone(200, 0.16); speak('Out'); track.lastOutT = performance.now();
+  endRally('out', true); setFeedback('Out', `The ball left the table ${where}: ${why}. Waiting for the next serve.`, 'bad', true); updateStats();
 }
 function endRally(reason, keepMessage) {
   if (rally.hits > 0 && !keepMessage) setFeedback(`Rally over · ${rally.hits} hits`, `Ended because ${reason}.`, 'warn');
@@ -1156,13 +1187,13 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && mode !==
 // ---------- Controls ----------
 const BALL_PRESETS = { orange: { hueMin: 10, hueMax: 40, satMin: 55, satMax: 100, valMin: 50, motionGate: true }, white: { hueMin: 0, hueMax: 360, satMin: 0, satMax: 22, valMin: 75, motionGate: true } };
 const TABLE_PRESETS = { blue: { tHueMin: 195, tHueMax: 250, tSatMin: 30, tValMin: 15 }, green: { tHueMin: 80, tHueMax: 170, tSatMin: 25, tValMin: 12 } };
-const RANGES = ['hueMin', 'hueMax', 'satMin', 'satMax', 'valMin', 'radMin', 'radMax', 'motionThr', 'zoneH'];
+const RANGES = ['hueMin', 'hueMax', 'satMin', 'satMax', 'valMin', 'radMin', 'radMax', 'motionThr', 'zoneH', 'returnWin'];
 const CHECKS = ['motionGate', 'showMask', 'showTrail', 'sound', 'voice', 'sizeAuto', 'zoneOn'];
 function syncControls() {
   RANGES.forEach((k) => { $(k).value = cfg[k]; }); CHECKS.forEach((k) => { $(k).checked = !!cfg[k]; });
   $('procW').value = String(cfg.procW);
   $('vHue').textContent = cfg.hueMin <= 0 && cfg.hueMax >= 360 ? 'any' : `${cfg.hueMin}–${cfg.hueMax}°`;
-  $('vSat').textContent = `${cfg.satMin}–${cfg.satMax}%`; $('vVal').textContent = `${cfg.valMin}%`; $('vSize').textContent = `${cfg.radMin}–${cfg.radMax} px`; $('vMotion').textContent = String(cfg.motionThr); $('vZone').textContent = `${Number(cfg.zoneH).toFixed(1)} m`;
+  $('vSat').textContent = `${cfg.satMin}–${cfg.satMax}%`; $('vVal').textContent = `${cfg.valMin}%`; $('vSize').textContent = `${cfg.radMin}–${cfg.radMax} px`; $('vMotion').textContent = String(cfg.motionThr); $('vZone').textContent = `${Number(cfg.zoneH).toFixed(1)} m`; $('vReturn').textContent = `${Number(cfg.returnWin)} s`;
   document.querySelectorAll('[data-preset]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.preset === cfg.preset)));
   document.querySelectorAll('[data-table]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.table === cfg.tableColor)));
   document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === cfg.view)));
@@ -1173,7 +1204,7 @@ RANGES.forEach((k) => $(k).addEventListener('input', () => {
   cfg[k] = Number($(k).value);
   if (k === 'satMin' && cfg.satMax < cfg.satMin) cfg.satMax = cfg.satMin; if (k === 'satMax' && cfg.satMin > cfg.satMax) cfg.satMin = cfg.satMax;
   if (k === 'radMin' && cfg.radMax < cfg.radMin) cfg.radMax = cfg.radMin; if (k === 'radMax' && cfg.radMin > cfg.radMax) cfg.radMin = cfg.radMax;
-  if (k !== 'motionThr' && k !== 'radMin' && k !== 'radMax' && k !== 'zoneH') cfg.preset = 'custom';
+  if (k !== 'motionThr' && k !== 'radMin' && k !== 'radMax' && k !== 'zoneH' && k !== 'returnWin') cfg.preset = 'custom';
   if (k === 'zoneH') updateZone();
   save(); syncControls();
 }));
@@ -1197,6 +1228,11 @@ $('btnClearTable').addEventListener('click', () => { cfg.corners = null; save();
 $('btnPickBall').addEventListener('click', () => setMode(mode === 'pickBall' ? 'none' : 'pickBall'));
 $('btnPickTable').addEventListener('click', () => setMode(mode === 'pickTable' ? 'none' : 'pickTable'));
 $('hintCancel').addEventListener('click', () => setMode('none'));
+$('btnSnapshot').addEventListener('click', () => {
+  if (inIframe) { setFeedback('Snapshot not available here', 'Open the page in its own tab to save a snapshot.', 'warn'); return; }
+  try { const a = document.createElement('a'); a.download = `rally-eye-${new Date().toISOString().replace(/[:.]/g, '-')}.png`; a.href = view.toDataURL('image/png'); document.body.appendChild(a); a.click(); a.remove(); setFeedback('Snapshot saved', 'The current frame with the overlay went to your downloads. Turn on the colour mask first to capture what the tracker sees.', 'good'); }
+  catch (e) { setFeedback('Snapshot failed', 'The browser refused to export the frame.', 'bad'); }
+});
 document.addEventListener('pointerdown', ensureAudio);
 try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', drawMap); } catch (e) { /* older browsers */ }
 new MutationObserver(drawMap).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
