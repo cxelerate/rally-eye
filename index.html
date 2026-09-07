@@ -326,6 +326,7 @@
           <input type="range" id="radMin" min="1" max="20" step="1" value="2" aria-label="Minimum ball radius">
           <input type="range" id="radMax" min="4" max="60" step="1" value="24" aria-label="Maximum ball radius"></div>
         <label class="check"><input type="checkbox" id="motionGate"> Only accept a moving ball (recommended; anything sitting still is ignored)</label>
+        <label class="check"><input type="checkbox" id="sizeAuto"> Expect a 40 mm ball at the table's scale (needs the table set)</label>
       </div>
     </details>
 
@@ -348,7 +349,10 @@
             <button class="btn" type="button" data-view="end" aria-pressed="false">End of table</button>
           </div>
         </div>
-        <p class="fb-sub">Drag the corner handles on the video to fine-tune. With the table set, speeds convert to km/h and bounces are placed on the map.</p>
+        <label class="check"><input type="checkbox" id="zoneOn"> Only track balls over the table (the play zone)</label>
+        <div class="range"><div class="row"><span>Play zone height above the table</span><span class="val" id="vZone">0.8 m</span></div>
+          <input type="range" id="zoneH" min="0.3" max="2" step="0.1" value="0.8" aria-label="Play zone height"></div>
+        <p class="fb-sub">Drag the corner handles on the video to fine-tune. With the table set, speeds convert to km/h, bounces are placed on the map, and balls on the floor are ignored.</p>
       </div>
     </details>
 
@@ -376,7 +380,8 @@
       <summary>Setup tips</summary>
       <div class="group-body">
         <ol class="tips">
-          <li><b>Teach it your ball first.</b> Hold the ball up in front of the camera, click <b>Pick from video</b> under Ball, and tap the ball. That fits the colour range to your ball under your light, which is what keeps skin, wood and warm walls out.</li>
+          <li><b>Set the table first.</b> With the table set, only a moving ball over it is tracked: balls on the floor, lettering on the table, the net and resting balls are ignored, and the tracker knows how big the ball must look.</li>
+          <li><b>If the ball is missed,</b> hold it up in front of the camera, click <b>Pick from video</b> under Ball, and tap it. That fits the colour range to your ball under your light.</li>
           <li><b>Camera at the side of the table</b>, about level with the net, so the whole table fits in the frame. Bounces read best from the side.</li>
           <li><b>Steady light, plain background.</b> Turn off auto-exposure flicker if you can and keep orange or white objects out of view.</li>
           <li><b>Set the table once</b> with the automatic finder or by tapping its four corners. Keep the laptop still afterwards.</li>
@@ -397,22 +402,23 @@ const TABLE_L = 2.74;     // metres, along the length
 const TABLE_W = 1.525;    // metres, across
 const NET_H = 0.1525;     // metres
 const EDGE_TOL = 0.035;   // metres of slack when judging in or out (ball radius plus noise)
+const BALL_R = 0.02;      // metres, a regulation 40 mm ball
 
 // ---------- Settings (persisted) ----------
 const defaults = {
-  preset: 'orange', hueMin: 10, hueMax: 40, satMin: 55, satMax: 100, valMin: 50,
-  radMin: 1, radMax: 14, motionGate: true, motionThr: 28,
+  preset: 'white', hueMin: 0, hueMax: 360, satMin: 0, satMax: 22, valMin: 75,
+  radMin: 1, radMax: 14, motionGate: true, motionThr: 28, sizeAuto: true, zoneOn: true, zoneH: 0.8,
   tableColor: 'blue', tHueMin: 195, tHueMax: 250, tSatMin: 30, tValMin: 15,
   view: 'side', mirror: false, procW: 480, showMask: false, showTrail: true, sound: true, voice: false,
   corners: null // four {x, y} pairs, normalised 0..1 in frame coordinates: top-left, top-right, bottom-right, bottom-left
 };
 const cfg = Object.assign({}, defaults);
 try {
-  const s2 = localStorage.getItem('rallyeye.v2');
-  if (s2) Object.assign(cfg, JSON.parse(s2));
-  else { const s1 = localStorage.getItem('rallyeye.v1'); if (s1) { const o = JSON.parse(s1); for (const k of ['corners', 'view', 'mirror', 'sound', 'voice', 'showTrail', 'tableColor', 'tHueMin', 'tHueMax', 'tSatMin', 'tValMin']) if (k in o) cfg[k] = o[k]; } }
+  const s3 = localStorage.getItem('rallyeye.v3');
+  if (s3) Object.assign(cfg, JSON.parse(s3));
+  else { const old = localStorage.getItem('rallyeye.v2') || localStorage.getItem('rallyeye.v1'); if (old) { const o = JSON.parse(old); for (const k of ['corners', 'view', 'mirror', 'sound', 'voice', 'showTrail', 'tableColor', 'tHueMin', 'tHueMax', 'tSatMin', 'tValMin']) if (k in o) cfg[k] = o[k]; } }
 } catch (e) { /* storage unavailable */ }
-function save() { try { localStorage.setItem('rallyeye.v2', JSON.stringify(cfg)); } catch (e) { /* ignore */ } }
+function save() { try { localStorage.setItem('rallyeye.v3', JSON.stringify(cfg)); } catch (e) { /* ignore */ } }
 
 // ---------- Small maths ----------
 function solveLinear(A, b) { // Gaussian elimination with partial pivoting; A is n×n (array of rows), returns x or null
@@ -449,7 +455,7 @@ function rgbToHsv(r, g, b) {
 function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
 // ---------- Table model: image (normalised) -> table (metres) ----------
-const table = { H: null, Hinv: null };
+const table = { H: null, Hinv: null, zone: null };
 function tableTargets() { // where the four tapped corners land on the table, by camera position
   return cfg.view === 'end'
     ? [{ x: TABLE_L, y: 0 }, { x: TABLE_L, y: TABLE_W }, { x: 0, y: TABLE_W }, { x: 0, y: 0 }]   // far end is at the top of the frame
@@ -463,7 +469,18 @@ function rebuildTable() {
     if (!table.Hinv) table.H = null;
   }
   stats.top = null; track.kmhSmooth = null; // units change between px/s and km/h
-  updateTableUI();
+  updateZone(); updateTableUI();
+}
+function mppAt(nx, ny) { // metres per processing pixel at a frame point, from the table plane along the image's horizontal axis
+  const a = toTable(nx, ny), b = toTable(nx + 1 / procW, ny); return a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0;
+}
+// The play zone: the table's footprint, a little past each end, and up to cfg.zoneH metres above it. Balls elsewhere are ignored.
+function updateZone() {
+  table.zone = null; if (!table.H || !cfg.corners) return;
+  const xs = cfg.corners.map((c) => c.x * procW), ys = cfg.corners.map((c) => c.y * procH);
+  const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys), tw = maxx - minx, th = maxy - miny;
+  const mpp = mppAt((cfg.corners[0].x + cfg.corners[1].x) / 2, (cfg.corners[0].y + cfg.corners[1].y) / 2) || TABLE_L / Math.max(1, tw);
+  table.zone = { x0: minx - tw * 0.15, x1: maxx + tw * 0.15, y0: miny - cfg.zoneH / mpp, y1: maxy + Math.max(th * 0.15, 4) };
 }
 function toTable(nx, ny) { return table.H ? applyH(table.H, nx, ny) : null; }        // returns {x: along length, y: across}
 function toFrame(u, v) { return table.Hinv ? applyH(table.Hinv, u, v) : null; }       // normalised frame coords
@@ -534,8 +551,9 @@ const demo = (() => {
     // ball with motion blur along its velocity
     if (st.pause <= 0) {
       const b = project(ball.x, ball.y, ball.z); const b2 = project(ball.x - ball.vx * 0.012, ball.y - ball.vy * 0.012, ball.z - ball.vz * 0.012);
-      g.strokeStyle = 'rgba(255,140,40,0.55)'; g.lineWidth = b.r * 2; g.lineCap = 'round'; g.beginPath(); g.moveTo(b2.x, b2.y); g.lineTo(b.x, b.y); g.stroke();
-      g.fillStyle = '#FF8C28'; g.beginPath(); g.arc(b.x, b.y, b.r, 0, Math.PI * 2); g.fill();
+      const white = cfg.satMax < 40;
+      g.strokeStyle = white ? 'rgba(244,244,240,0.55)' : 'rgba(255,140,40,0.55)'; g.lineWidth = b.r * 2; g.lineCap = 'round'; g.beginPath(); g.moveTo(b2.x, b2.y); g.lineTo(b.x, b.y); g.stroke();
+      g.fillStyle = white ? '#F4F4F0' : '#FF8C28'; g.beginPath(); g.arc(b.x, b.y, b.r, 0, Math.PI * 2); g.fill();
       g.fillStyle = 'rgba(255,255,255,0.35)'; g.beginPath(); g.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.4, 0, Math.PI * 2); g.fill();
     }
     // a little sensor noise
@@ -555,19 +573,19 @@ const view = $('view'), vctx = view.getContext('2d');
 const pc = document.createElement('canvas'); const pctx = pc.getContext('2d', { willReadFrequently: true });
 const maskCanvas = document.createElement('canvas'); const mctx = maskCanvas.getContext('2d');
 let procW = 320, procH = 180, N = 0;
-let mask, maskShow, gray, prevGray, stack, staticCount, havePrev = false, lastData = null;
+let mask, maskShow, gray, prevGray, curGray, stack, staticCount, havePrev = false, lastData = null;
 function resizeForSource() {
   procW = Number(cfg.procW) || 320; procH = Math.max(8, Math.round(procW * src.h / src.w)); N = procW * procH;
   pc.width = procW; pc.height = procH; maskCanvas.width = procW; maskCanvas.height = procH;
   mask = new Uint8Array(N); maskShow = new Uint8Array(N); gray = new Uint8Array(N); prevGray = new Uint8Array(N); stack = new Int32Array(N); staticCount = new Uint8Array(N); havePrev = false;
   cand.n = 0;
   view.width = src.w; view.height = src.h; $('viewport').style.aspectRatio = `${src.w} / ${src.h}`;
-  track.pts.length = 0; track.active = false; markers.length = 0;
+  track.pts.length = 0; track.active = false; markers.length = 0; updateZone();
 }
 
 // ---------- Tracking state ----------
-const track = { pts: [], vx: 0, vy: 0, active: false, lost: 0, lastSeen: 0, speedPx: 0, kmh: null, kmhSmooth: null, r: 0 };
-const cand = { x: 0, y: 0, vx: 0, vy: 0, t: 0, n: 0, r: 0 }; // a tentative ball: promoted to the track after three coherent frames
+const track = { pts: [], vx: 0, vy: 0, active: false, lost: 0, lastSeen: 0, speedPx: 0, kmh: null, kmhSmooth: null, r: 0, sawBounce: false, lastOutT: -1e9 };
+const cand = { x: 0, y: 0, vx: 0, vy: 0, t: 0, n: 0, r: 0, x0: 0, y0: 0 }; // a tentative ball: promoted after three coherent, moving frames
 let candAvg = 0, hintMode = '';
 const ev = { yDir: 0, yRun: 0, low: null, pendBounce: null, queued: null, xDir: 0, xRun: 0, pendHit: null, lastBounceT: -1e9, lastHitT: -1e9 };
 const stats = { bounceA: 0, bounceB: 0, out: 0, best: 0, top: null, bounces: [], frames: 0 };
@@ -631,8 +649,22 @@ function findBlobs(m, w, h, minArea, maxArea) {
 function shapeOk(b) {
   const aspect = b.w / b.h; if (aspect < 0.45 || aspect > 2.2) return false;
   const fill = b.area / (b.w * b.h); if (fill < 0.45) return false;
-  if (Math.min(b.w, b.h) > cfg.radMax * 2.2) return false;
+  const r = Math.min(b.w, b.h) / 2;
+  if (cfg.sizeAuto && table.H) { // a 40 mm ball has a known size at that spot on the table
+    const mpp = mppAt(b.cx / procW, b.cy / procH);
+    if (mpp > 0) { const rExp = BALL_R / mpp; if (r < rExp * 0.45 || r > rExp * 2.2) return false; }
+  } else if (r > cfg.radMax * 1.1) return false;
+  if (cfg.satMax < 40 && brightContrast(b) < 18) return false; // a white ball stands out from what is around it; a shirt does not
   return true;
+}
+function brightContrast(b) { // mean brightness inside the box minus a ring around it
+  if (!curGray) return 255;
+  const m = Math.max(2, Math.round(Math.min(b.w, b.h) / 2));
+  const bx1 = b.minx + b.w - 1, by1 = b.miny + b.h - 1;
+  const x0 = Math.max(0, b.minx - m), x1 = Math.min(procW - 1, bx1 + m), y0 = Math.max(0, b.miny - m), y1 = Math.min(procH - 1, by1 + m);
+  let sIn = 0, nIn = 0, sOut = 0, nOut = 0;
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const v = curGray[y * procW + x]; if (x >= b.minx && x <= bx1 && y >= b.miny && y <= by1) { sIn += v; nIn++; } else { sOut += v; nOut++; } }
+  return nIn && nOut ? sIn / nIn - sOut / nOut : 0;
 }
 // With a prediction, only blobs within searchR count, and their size must stay close to the tracked ball's.
 function pickBall(blobs, pred, searchR, rRef) {
@@ -679,11 +711,13 @@ function processFrame(now) {
       mask[i] = 0;
     }
   }
-  const t = prevGray; prevGray = gray; gray = t; havePrev = true;
+  curGray = gray; const t = prevGray; prevGray = gray; gray = t; havePrev = true;
   if (cfg.showMask) maskShow.set(mask);
 
   const minArea = Math.max(3, Math.PI * cfg.radMin * cfg.radMin * 0.6), maxArea = Math.PI * cfg.radMax * cfg.radMax * 1.6;
-  const blobs = findBlobs(mask, procW, procH, minArea, maxArea);
+  const zone = cfg.zoneOn ? table.zone : null;
+  const blobsAll = findBlobs(mask, procW, procH, minArea, maxArea);
+  const blobs = zone ? blobsAll.filter((b) => b.cx >= zone.x0 && b.cx <= zone.x1 && b.cy >= zone.y0 && b.cy <= zone.y1) : blobsAll;
   let nCand = 0; for (const b of blobs) if (shapeOk(b)) nCand++;
   candAvg = candAvg * 0.9 + nCand * 0.1;
   if (track.active && last) {
@@ -693,7 +727,7 @@ function processFrame(now) {
     if (b) updateTrack(b.cx, b.cy, now, b);
     else {
       track.lost++;
-      if (track.lost > 12) { track.active = false; cand.n = 0; resetEvents(); track.kmhSmooth = null; setFeedback('Searching for the ball', 'Ball lost from view. Check the colour mask under Detection if this keeps happening.', 'none', true); }
+      if (track.lost > 12) { track.active = false; cand.n = 0; resetEvents(); track.kmhSmooth = null; hintMode = ''; ballLost(last); }
       if (rally.hits > 0 && now - last.t > 2000) endRally('the ball left the frame');
     }
   } else {
@@ -702,15 +736,15 @@ function processFrame(now) {
     if (cand.n) { const dt = Math.min(0.25, (now - cand.t) / 1000); b = pickBall(blobs, { x: cand.x + cand.vx * dt, y: cand.y + cand.vy * dt }, procW * 0.08 + Math.hypot(cand.vx, cand.vy) * dt * 1.5, cand.r); }
     if (b) { const dt = (now - cand.t) / 1000; if (dt > 0) { cand.vx = (b.cx - cand.x) / dt; cand.vy = (b.cy - cand.y) / dt; } cand.n++; }
     else { b = pickBall(blobs, null, 0, 0); cand.n = b ? 1 : 0; cand.vx = 0; cand.vy = 0; }
-    if (b) { cand.x = b.cx; cand.y = b.cy; cand.t = now; cand.r = Math.min(b.w, b.h) / 2; }
-    if (cand.n >= 3) { track.lost = 99; track.pts.length = 0; updateTrack(b.cx, b.cy, now, b); }
+    if (b) { if (cand.n === 1) { cand.x0 = b.cx; cand.y0 = b.cy; } cand.x = b.cx; cand.y = b.cy; cand.t = now; cand.r = Math.min(b.w, b.h) / 2; }
+    if (cand.n >= 3 && Math.hypot(cand.x - cand.x0, cand.y - cand.y0) >= 2) { track.lost = 99; track.pts.length = 0; track.sawBounce = false; updateTrack(b.cx, b.cy, now, b); }
     if (rally.hits > 0 && last && now - last.t > 2000) endRally('the ball left the frame');
     if (src.kind === 'camera') {
       const mode = candAvg > 3 ? 'many' : nCand === 0 && candAvg < 0.2 ? 'none' : '';
       if (mode !== hintMode) {
         hintMode = mode;
         if (mode === 'many') setFeedback('Too many things look like the ball', `About ${Math.round(candAvg)} ball-coloured blobs in view. Hold the ball up and use Pick from video so the colour range fits it exactly, or raise Saturation.`, 'warn', true);
-        else if (mode === 'none') setFeedback('Searching for the ball', cfg.preset === 'white' ? 'Nothing white and moving in view. Move the ball, or use Pick from video on it.' : 'Nothing ball-coloured in view. If your ball is white, choose the White preset. Otherwise hold the ball up and use Pick from video.', 'none', true);
+        else if (mode === 'none') setFeedback('Waiting for a serve', !table.H ? 'Set the table first: only a moving ball over the table will be tracked.' : cfg.preset === 'white' ? 'Only a moving white ball over the table counts. Resting balls, lettering and the net are ignored.' : 'Only a moving ball-coloured ball over the table counts. If your ball is white, choose the White preset.', 'none', true);
       }
     }
   }
@@ -771,7 +805,7 @@ function fireBounce(p) {
   const b = { x: p.x, y: cy, t: p.t, in: null, u: null, v: null, side: null, kmh: track.kmhSmooth };
   const m = toTable(p.x / procW, cy / procH);
   if (m) { b.u = m.x; b.v = m.y; b.in = m.x >= -EDGE_TOL && m.x <= TABLE_L + EDGE_TOL && m.y >= -EDGE_TOL && m.y <= TABLE_W + EDGE_TOL; b.side = sideOf(m.x); }
-  stats.bounces.push(b); if (stats.bounces.length > 80) stats.bounces.shift();
+  stats.bounces.push(b); if (stats.bounces.length > 80) stats.bounces.shift(); track.sawBounce = true; if (b.in === false) track.lastOutT = p.t;
   markers.push({ x: p.x, y: cy, t: performance.now(), kind: b.in === false ? 'out' : 'in' });
   if (b.in === false) {
     stats.out++; tone(200, 0.16); speak('Out');
@@ -801,6 +835,16 @@ function fireHit(p) {
   if (rally.hits % 5 === 0) speak(String(rally.hits));
   setFeedback(`Hit · rally ${rally.hits}`, track.kmhSmooth ? `Return at about ${Math.round(track.kmhSmooth)} km/h.` : 'Direction reversed on a paddle.', 'accent');
   updateStats();
+}
+// The ball vanished. If it was last seen beyond the table's edges, it left the table: that is out.
+function ballLost(last) {
+  const m = table.H && last ? toTable(last.x / procW, (last.y + (last.hh || 0)) / procH) : null;
+  const beyond = m && (m.x < -0.1 || m.x > TABLE_L + 0.1 || m.y < -0.1 || m.y > TABLE_W + 0.1);
+  if (beyond && (rally.hits > 0 || track.sawBounce) && performance.now() - track.lastOutT > 1500) {
+    stats.out++; tone(200, 0.16); speak('Out');
+    const where = m.x < -0.1 ? (cfg.view === 'end' ? 'short of the near end' : 'past the left end') : m.x > TABLE_L + 0.1 ? (cfg.view === 'end' ? 'past the far end' : 'past the right end') : 'wide of the side line';
+    endRally('out', true); setFeedback('Out', `The ball left the table ${where}. Waiting for the next serve.`, 'bad', true);
+  } else setFeedback('Waiting for the next serve', table.H ? 'Ball out of view. A new moving ball over the table starts the next point.' : 'Ball out of view. Set the table to limit tracking to it.', 'none', true);
 }
 function endRally(reason, keepMessage) {
   if (rally.hits > 0 && !keepMessage) setFeedback(`Rally over · ${rally.hits} hits`, `Ended because ${reason}.`, 'warn');
@@ -840,6 +884,11 @@ function draw(now) {
     const id = mctx.createImageData(procW, procH), q = id.data;
     for (let i = 0, p = 0; i < N; i++, p += 4) if (maskShow[i]) { q[p] = 255; q[p + 1] = 140; q[p + 2] = 40; q[p + 3] = 175; }
     mctx.putImageData(id, 0, 0); g.imageSmoothingEnabled = false; g.drawImage(maskCanvas, 0, 0, W, Hh); g.imageSmoothingEnabled = true;
+  }
+  if (cfg.zoneOn && table.zone && mode !== 'corners') {
+    const z = table.zone; g.setLineDash([lw * 5, lw * 5]); g.strokeStyle = 'rgba(63,134,220,0.55)'; g.lineWidth = lw * 1.5;
+    g.strokeRect(z.x0 * sx, z.y0 * sy, (z.x1 - z.x0) * sx, (z.y1 - z.y0) * sy); g.setLineDash([]);
+    g.fillStyle = 'rgba(220,232,245,0.8)'; g.font = `600 ${11 * lw}px "IBM Plex Sans", sans-serif`; g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText('Play zone', z.x0 * sx + lw * 6, z.y0 * sy + lw * 5);
   }
   const pts = mode === 'corners' ? tapPts : cfg.corners;
   if (pts && pts.length) {
@@ -1052,13 +1101,13 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && mode !==
 // ---------- Controls ----------
 const BALL_PRESETS = { orange: { hueMin: 10, hueMax: 40, satMin: 55, satMax: 100, valMin: 50, motionGate: true }, white: { hueMin: 0, hueMax: 360, satMin: 0, satMax: 22, valMin: 75, motionGate: true } };
 const TABLE_PRESETS = { blue: { tHueMin: 195, tHueMax: 250, tSatMin: 30, tValMin: 15 }, green: { tHueMin: 80, tHueMax: 170, tSatMin: 25, tValMin: 12 } };
-const RANGES = ['hueMin', 'hueMax', 'satMin', 'satMax', 'valMin', 'radMin', 'radMax', 'motionThr'];
-const CHECKS = ['motionGate', 'showMask', 'showTrail', 'sound', 'voice'];
+const RANGES = ['hueMin', 'hueMax', 'satMin', 'satMax', 'valMin', 'radMin', 'radMax', 'motionThr', 'zoneH'];
+const CHECKS = ['motionGate', 'showMask', 'showTrail', 'sound', 'voice', 'sizeAuto', 'zoneOn'];
 function syncControls() {
   RANGES.forEach((k) => { $(k).value = cfg[k]; }); CHECKS.forEach((k) => { $(k).checked = !!cfg[k]; });
   $('procW').value = String(cfg.procW);
   $('vHue').textContent = cfg.hueMin <= 0 && cfg.hueMax >= 360 ? 'any' : `${cfg.hueMin}–${cfg.hueMax}°`;
-  $('vSat').textContent = `${cfg.satMin}–${cfg.satMax}%`; $('vVal').textContent = `${cfg.valMin}%`; $('vSize').textContent = `${cfg.radMin}–${cfg.radMax} px`; $('vMotion').textContent = String(cfg.motionThr);
+  $('vSat').textContent = `${cfg.satMin}–${cfg.satMax}%`; $('vVal').textContent = `${cfg.valMin}%`; $('vSize').textContent = `${cfg.radMin}–${cfg.radMax} px`; $('vMotion').textContent = String(cfg.motionThr); $('vZone').textContent = `${Number(cfg.zoneH).toFixed(1)} m`;
   document.querySelectorAll('[data-preset]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.preset === cfg.preset)));
   document.querySelectorAll('[data-table]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.table === cfg.tableColor)));
   document.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === cfg.view)));
@@ -1069,7 +1118,8 @@ RANGES.forEach((k) => $(k).addEventListener('input', () => {
   cfg[k] = Number($(k).value);
   if (k === 'satMin' && cfg.satMax < cfg.satMin) cfg.satMax = cfg.satMin; if (k === 'satMax' && cfg.satMin > cfg.satMax) cfg.satMin = cfg.satMax;
   if (k === 'radMin' && cfg.radMax < cfg.radMin) cfg.radMax = cfg.radMin; if (k === 'radMax' && cfg.radMin > cfg.radMax) cfg.radMin = cfg.radMax;
-  if (k !== 'motionThr' && k !== 'radMin' && k !== 'radMax') cfg.preset = 'custom';
+  if (k !== 'motionThr' && k !== 'radMin' && k !== 'radMax' && k !== 'zoneH') cfg.preset = 'custom';
+  if (k === 'zoneH') updateZone();
   save(); syncControls();
 }));
 CHECKS.forEach((k) => $(k).addEventListener('change', () => { cfg[k] = $(k).checked; save(); if (k === 'voice' && cfg.voice) speak('Voice on'); }));

@@ -8,10 +8,10 @@ The page must be open in its own tab. Browsers do not pass camera permission int
 
 ## What it does
 
-- Finds the ball every frame by colour (orange or white presets, or sample the real ball from the video), with size and roundness checks and optional motion gating for busy rooms.
-- Finds the table by colour (blue or green presets, or sample it), or lets you tap its four corners. Corner handles can be dragged to fine-tune.
-- Turns the four corners into a homography, so each bounce is placed on a top-down map of the 2.74 m × 1.525 m table and judged in or out.
-- Detects bounces (the ball stops falling and starts rising) and paddle hits (the ball reverses direction), counts rally length, and calls double bounces.
+- Tracks only the ball in play: a moving, ball-sized, round blob inside the play zone above the table. Balls on the floor, spare balls sitting on the table, lettering on the table and the net are ignored.
+- White ball by default, with an orange preset, or sample the real ball from the video.
+- Finds the table by colour, or lets you tap its four corners, with draggable handles to fine-tune. The four corners become a homography, so the tracker knows how large a 40 mm ball must look, where the play zone is, and where each bounce lands.
+- Detects bounces and paddle hits, judges each bounce in or out, places it on a top-down map of the 2.74 m × 1.525 m table, counts the rally and calls double bounces. A ball that vanishes beyond the table's edge is called out.
 - Estimates ball speed in km/h from the table scale, and keeps top speed and best rally.
 - Gives live feedback in a scoreboard strip, with a click on every bounce, a low tone for out, and optional spoken rally counts.
 
@@ -21,7 +21,7 @@ A demo feed runs through the same tracker while the camera is off, so the page s
 
 1. Put the laptop at the side of the table, roughly level with the net, with the whole table in frame. Bounces and hits read best from the side.
 2. Steady light and a plain background. Keep other orange or white objects out of view.
-3. Set the table once with **Find table automatically** or **Tap the 4 corners**, then keep the laptop still.
+3. Set the table first with **Find table automatically** or **Tap the 4 corners**, then keep the laptop still. Tracking is limited to the zone above the table only once the table is set.
 4. If the ball is missed, turn on **Show what the tracker sees** under Detection. Only the ball should light up. Use **Pick from video** to sample its real colour under your lighting.
 
 ## Running locally
