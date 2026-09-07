@@ -1153,9 +1153,13 @@ function drawMap() {
 }
 
 // ---------- Feedback strip, status, stats ----------
-let fbTimer = 0, fbPersist = { text: 'Warming up', sub: 'The demo feed runs through the same tracker as your camera.', level: 'none' };
+let fbTimer = 0, fbHold = 0, fbPersist = { text: 'Warming up', sub: 'The demo feed runs through the same tracker as your camera.', level: 'none' };
 function applyFeedback(f) { $('fbText').textContent = f.text; $('fbSub').textContent = f.sub || ''; $('feedback').dataset.level = f.level || 'none'; }
-function setFeedback(text, sub, level, persistent) {
+// holdMs keeps a message readable: something the person has to act on is not washed away by the next bounce
+function setFeedback(text, sub, level, persistent, holdMs) {
+  const now = performance.now();
+  if (!holdMs && now < fbHold) return;
+  if (holdMs) { fbHold = now + holdMs; clearTimeout(fbTimer); fbTimer = 0; }
   if (persistent) { fbPersist = { text, sub, level }; if (!fbTimer) applyFeedback(fbPersist); return; }
   applyFeedback({ text, sub, level }); clearTimeout(fbTimer);
   fbTimer = setTimeout(() => { fbTimer = 0; applyFeedback(fbPersist); }, 2200);
@@ -1218,18 +1222,18 @@ function explainCameraError(e) {
   }
 }
 async function startCamera(deviceId) {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setStatus('error', 'No camera API'); setFeedback('Camera unavailable', 'This browser cannot open a camera here. Use Chrome, Edge, Safari or Firefox over https.', 'bad', true); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setStatus('error', 'No camera API'); setFeedback('Camera unavailable', 'This browser cannot open a camera here. Use Chrome, Edge, Safari or Firefox over https.', 'bad', true, 15000); return; }
   ensureAudio(); stopStream(); setStatus('starting', 'Starting camera'); $('btnStart').disabled = true;
   const vc = { width: { ideal: 1280 }, height: { ideal: 720 }, aspectRatio: { ideal: 16 / 9 }, frameRate: { ideal: 60 } };
   if (deviceId) vc.deviceId = { exact: deviceId }; else vc.facingMode = 'user';
   try { stream = await navigator.mediaDevices.getUserMedia({ video: vc, audio: false }); }
-  catch (e) { $('btnStart').disabled = false; setStatus('error', 'Camera blocked'); setFeedback('Camera did not start', explainCameraError(e), 'bad', true); if (inIframe) showFrameNotice(); return; }
+  catch (e) { $('btnStart').disabled = false; setStatus('error', 'Camera blocked'); setFeedback('Camera did not start', explainCameraError(e), 'bad', true, 15000); if (inIframe) showFrameNotice(); return; }
   video.srcObject = stream;
   try { await video.play(); } catch (e) { /* autoplay policies; the stream still renders once metadata arrives */ }
   if (!video.videoWidth) await new Promise((res) => { const done = () => { video.removeEventListener('loadedmetadata', done); res(); }; video.addEventListener('loadedmetadata', done); setTimeout(done, 3000); });
   $('btnStart').disabled = false;
-  if (!video.videoWidth) { stopStream(); setStatus('error', 'No video'); setFeedback('Camera gave no video', 'The camera opened but sent no frames. Try another camera from the list.', 'bad', true); return; }
-  setSource('camera'); resetEvents();
+  if (!video.videoWidth) { stopStream(); setStatus('error', 'No video'); setFeedback('Camera gave no video', 'The camera opened but sent no frames. Try another camera from the list.', 'bad', true, 15000); return; }
+  setSource('camera'); resetEvents(); fbHold = 0;
   setStatus('live', `Live · ${video.videoWidth}×${video.videoHeight}`);
   if (video.videoHeight > video.videoWidth) setFeedback('Turn the device sideways', 'The camera is sending a tall picture. Landscape fits the whole table in the frame.', 'warn', true);
   $('btnStart').textContent = 'Stop camera'; $('hudStart').textContent = 'Stop camera'; $('btnDemo').setAttribute('aria-pressed', 'false');
@@ -1447,6 +1451,6 @@ if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) listDevic
 syncControls(); setSource('demo'); demo.reset(7); rebuildTable(); updateStats(); schedule();
 setTimeout(() => { if (src.kind === 'demo' && !table.H) wantTableDetect = true; }, 500);
 if (location.hash === '#stage') { enterStage(); if (!inIframe) startCamera(''); }
-window.RallyEye = { cfg, stats, track, rally, table, demo, resetStats, standaloneHtml, get proc() { return { w: procW, h: procH }; }, get src() { return src; } };
+window.RallyEye = { cfg, stats, track, rally, table, demo, resetStats, standaloneHtml, toTable, toFrame, save, get proc() { return { w: procW, h: procH }; }, get src() { return src; } };
 })();
 </script>
