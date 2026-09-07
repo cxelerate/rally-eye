@@ -120,6 +120,8 @@
   @media (max-width: 980px) { .layout { grid-template-columns: minmax(0, 1fr); } }
   .stage { display: grid; gap: 12px; align-content: start; min-width: 0; }
   .rail { display: grid; gap: 12px; align-content: start; min-width: 0; }
+  .rail-body { display: grid; gap: 12px; align-content: start; min-width: 0; }
+  .drawer-done { display: none; }
 
   /* Stage */
   .viewport {
@@ -281,13 +283,24 @@
   .scrim { position: fixed; left: 0; top: 0; width: var(--stage-w, 100vw); height: var(--stage-h, 100vh); z-index: 39; background: rgba(6, 9, 13, 0.5); display: none; }
   body.stage .scrim.on { display: block; }
   body.stage .rail {
-    position: fixed; top: 0; right: 0; height: var(--stage-h, 100vh); z-index: 40; width: min(400px, 100vw); overflow: auto;
-    padding: calc(12px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) 12px;
+    position: fixed; top: 0; right: 0; height: var(--stage-h, 100vh); z-index: 40;
+    width: min(400px, 88vw); /* a strip of the picture always shows, so tapping outside is always a way out */
+    overflow: hidden; padding: 0; display: flex; flex-direction: column; gap: 0;
     background: var(--surface); border-left: 1px solid var(--border);
     transform: translateX(100%); transition: transform 0.2s ease; visibility: hidden;
   }
   body.stage .rail.open { transform: translateX(0); visibility: visible; }
-  body.stage .drawer-head { display: flex; position: sticky; top: -12px; background: var(--surface); padding: 4px 0 8px; margin-top: -4px; z-index: 1; }
+  body.stage .rail-body {
+    flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+    padding: 12px calc(12px + env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) 12px;
+  }
+  body.stage .drawer-head {
+    display: flex; flex: none; z-index: 1; background: var(--surface); border-bottom: 1px solid var(--border);
+    padding: calc(10px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) 10px 12px;
+  }
+  body.stage .drawer-head .btn { min-height: 40px; }
+  body.stage .drawer-done { display: block; }
+  body.stage .drawer-done .btn { width: 100%; min-height: 46px; }
   .drawer-head { display: none; justify-content: space-between; align-items: center; }
   .drawer-head b { font-family: var(--font-display); font-size: 18px; text-transform: uppercase; letter-spacing: 0.06em; }
   body.stage .toolbar { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
@@ -419,7 +432,8 @@
   </section>
 
   <aside class="rail" id="rail" aria-label="Stats and settings">
-    <div class="drawer-head"><b>Settings</b><button class="btn small" type="button" id="drawerClose">Close</button></div>
+    <div class="drawer-head"><b>Settings</b><button class="btn" type="button" id="drawerClose">✕ Close</button></div>
+    <div class="rail-body" id="railBody">
     <div class="tiles">
       <div class="tile"><div class="label">Ball speed</div><div class="value" id="tSpeed">—</div><div class="unit" id="tSpeedUnit">km/h, estimated</div></div>
       <div class="tile"><div class="label">Top speed</div><div class="value" id="tTop">—</div><div class="unit" id="tTopUnit">km/h, approx.</div></div>
@@ -521,6 +535,8 @@
         </ol>
       </div>
     </details>
+    <div class="drawer-done"><button class="btn primary" type="button" id="drawerDone">Back to the camera</button></div>
+    </div>
   </aside>
 </main>
 <p class="foot">Everything runs in your browser. No video leaves your device.</p>
@@ -1466,10 +1482,19 @@ function fitStage() {
 const homes = new Map(); // where each moved element lives outside the stage
 function moveTo(el, slot) { if (!homes.has(el)) homes.set(el, { parent: el.parentNode, next: el.nextSibling }); slot.appendChild(el); }
 function moveHome(el) { const h = homes.get(el); if (h) { h.parent.insertBefore(el, h.next); homes.delete(el); } }
-function setDrawer(open) { $('rail').classList.toggle('open', open); $('scrim').classList.toggle('on', open); }
+let drawerHistory = false;
+function setDrawer(open) {
+  const was = $('rail').classList.contains('open');
+  $('rail').classList.toggle('open', open); $('scrim').classList.toggle('on', open);
+  if (open && !was) { try { history.pushState({ rallyDrawer: true }, ''); drawerHistory = true; } catch (e) { drawerHistory = false; } }
+  else if (!open && was && drawerHistory) { drawerHistory = false; try { history.back(); } catch (e) { /* ignore */ } }
+  if (open) { const b = $('railBody'); if (b) b.scrollTop = 0; }
+}
+// a phone's back gesture is the reflex for leaving a panel, so it closes this one
+window.addEventListener('popstate', () => { if ($('rail').classList.contains('open')) { drawerHistory = false; setDrawer(false); } });
 function enterStage() {
   if (stage) return; stage = true; document.body.classList.add('stage');
-  moveTo($('toolbar'), $('rail')); $('rail').prepend($('toolbar'));
+  moveTo($('toolbar'), $('railBody')); $('railBody').prepend($('toolbar'));
   moveTo($('feedback'), $('slotFb'));
   setDrawer(false); fitStage(); updateStats();
   const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
@@ -1528,6 +1553,7 @@ $('btnStage').addEventListener('click', enterStage);
 $('hudExit').addEventListener('click', exitStage);
 $('hudSettings').addEventListener('click', () => setDrawer(!$('rail').classList.contains('open')));
 $('drawerClose').addEventListener('click', () => setDrawer(false));
+$('drawerDone').addEventListener('click', () => setDrawer(false));
 $('scrim').addEventListener('click', () => setDrawer(false));
 $('hudTable').addEventListener('click', () => { setDrawer(false); if (table.H) { setMode('corners'); } else { wantTableDetect = true; setTimeout(() => { if (!table.H) setMode('corners'); }, 400); } });
 $('hudStart').addEventListener('click', () => $('btnStart').click());
