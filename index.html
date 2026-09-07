@@ -522,15 +522,16 @@ const BALL_R = 0.02;      // metres, a regulation 40 mm ball
 const defaults = {
   preset: 'white', hueMin: 0, hueMax: 360, satMin: 0, satMax: 22, valMin: 75,
   radMin: 1, radMax: 14, motionGate: true, motionThr: 22, sizeAuto: true, zoneOn: true, zoneH: 0.8, returnWin: 3,
-  tableColor: 'blue', tHueMin: 195, tHueMax: 250, tSatMin: 30, tValMin: 15,
+  tableColor: 'blue', tHueMin: 205, tHueMax: 265, tSatMin: 10, tValMin: 25,
   view: 'side', mirror: false, procW: 480, showMask: false, showTrail: true, sound: true, voice: false,
-  corners: null // four {x, y} pairs, normalised 0..1 in frame coordinates: top-left, top-right, bottom-right, bottom-left
+  corners: null, // four {x, y} pairs, normalised 0..1 in frame coordinates: top-left, top-right, bottom-right, bottom-left
+  cornersManual: false // true once a person taps or drags them, which stops an automatic guess replacing them
 };
 const cfg = Object.assign({}, defaults);
 try {
   const s3 = localStorage.getItem('rallyeye.v3');
   if (s3) Object.assign(cfg, JSON.parse(s3));
-  else { const old = localStorage.getItem('rallyeye.v2') || localStorage.getItem('rallyeye.v1'); if (old) { const o = JSON.parse(old); for (const k of ['corners', 'view', 'mirror', 'sound', 'voice', 'showTrail', 'tableColor', 'tHueMin', 'tHueMax', 'tSatMin', 'tValMin']) if (k in o) cfg[k] = o[k]; } }
+  else { const old = localStorage.getItem('rallyeye.v2') || localStorage.getItem('rallyeye.v1'); if (old) { const o = JSON.parse(old); for (const k of ['corners', 'cornersManual', 'view', 'mirror', 'sound', 'voice', 'showTrail']) if (k in o) cfg[k] = o[k]; } }
 } catch (e) { /* storage unavailable */ }
 function save() { try { localStorage.setItem('rallyeye.v3', JSON.stringify(cfg)); } catch (e) { /* ignore */ } }
 
@@ -660,9 +661,9 @@ const demo = (() => {
   }
   function render(now) {
     step(now);
-    const wall = g.createLinearGradient(0, 0, 0, 540); wall.addColorStop(0, '#3B424B'); wall.addColorStop(1, '#262B31'); g.fillStyle = wall; g.fillRect(0, 0, 960, 540);
+    const wall = g.createLinearGradient(0, 0, 0, 540); wall.addColorStop(0, '#4A443E'); wall.addColorStop(1, '#302B27'); g.fillStyle = wall; g.fillRect(0, 0, 960, 540);
     g.fillStyle = '#1F2226'; g.fillRect(0, 432, 960, 108);
-    g.fillStyle = '#55606B'; g.fillRect(60, 40, 180, 140); g.fillStyle = '#7C8996'; g.fillRect(70, 50, 160, 120);
+    g.fillStyle = '#6B6259'; g.fillRect(60, 40, 180, 140); g.fillStyle = '#968B7C'; g.fillRect(70, 50, 160, 120);
     // table top, thickness and legs
     g.fillStyle = '#1E4F8E'; g.beginPath(); quad.forEach((p, i) => i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)); g.closePath(); g.fill();
     g.strokeStyle = '#E9EEF3'; g.lineWidth = 2; g.stroke();
@@ -1061,16 +1062,78 @@ function boxMin(a, out, w, h, r, scratch) { // separable erosion
   for (let y = 0; y < h; y++) { const row = y * w; for (let x = 0; x < w; x++) { let v = 1; for (let k = Math.max(0, x - r), e = Math.min(w - 1, x + r); k <= e; k++) if (!a[row + k]) { v = 0; break; } t[row + x] = v; } }
   for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) { let v = 1; for (let k = Math.max(0, y - r), e = Math.min(h - 1, y + r); k <= e; k++) if (!t[k * w + x]) { v = 0; break; } out[y * w + x] = v; }
 }
+function convexHull(pts) {
+  const p = pts.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [], up = [];
+  for (const q of p) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+  lo.pop(); up.pop(); return lo.concat(up);
+}
+function quadArea(a, b, c, e) { return Math.abs((a[0] * b[1] - b[0] * a[1]) + (b[0] * c[1] - c[0] * b[1]) + (c[0] * e[1] - e[0] * c[1]) + (e[0] * a[1] - a[0] * e[1])) / 2; }
+function largestQuad(h) {
+  const n = h.length; if (n < 4) return null;
+  const idx = [0, Math.floor(n / 4), Math.floor(n / 2), Math.floor(3 * n / 4)];
+  for (let pass = 0; pass < 20; pass++) {
+    let moved = false;
+    for (let k = 0; k < 4; k++) {
+      let best = idx[k], bestA = quadArea(h[idx[0]], h[idx[1]], h[idx[2]], h[idx[3]]);
+      for (let i = 0; i < n; i++) {
+        if (i !== idx[k] && idx.indexOf(i) >= 0) continue;
+        const t = idx.slice(); t[k] = i; if (new Set(t).size < 4) continue;
+        const a = quadArea(h[t[0]], h[t[1]], h[t[2]], h[t[3]]);
+        if (a > bestA) { bestA = a; best = i; }
+      }
+      if (best !== idx[k]) { idx[k] = best; moved = true; }
+    }
+    if (!moved) break;
+  }
+  const q = idx.map((i) => h[i]);
+  const cx = q.reduce((t, v) => t + v[0], 0) / 4, cy = q.reduce((t, v) => t + v[1], 0) / 4;
+  const sorted = q.slice().sort((a, b) => Math.atan2(a[1] - cy, a[0] - cx) - Math.atan2(b[1] - cy, b[0] - cx));
+  let bi = 0, bv = Infinity; sorted.forEach((v, i) => { if (v[0] + v[1] < bv) { bv = v[0] + v[1]; bi = i; } });
+  return sorted.slice(bi).concat(sorted.slice(0, bi)); // clockwise from the corner nearest the top-left
+}
+function largestRegion(m) { // flood fill, keeping the biggest region's pixels
+  let best = null;
+  for (let i = 0; i < N; i++) {
+    if (!m[i]) continue;
+    let sp = 0; stack[sp++] = i; m[i] = 0; const pts = [];
+    while (sp) {
+      const j = stack[--sp], x = j % procW, y = (j - (j % procW)) / procW; pts.push([x, y]);
+      if (x > 0 && m[j - 1]) { m[j - 1] = 0; stack[sp++] = j - 1; }
+      if (x < procW - 1 && m[j + 1]) { m[j + 1] = 0; stack[sp++] = j + 1; }
+      if (y > 0 && m[j - procW]) { m[j - procW] = 0; stack[sp++] = j - procW; }
+      if (y < procH - 1 && m[j + procW]) { m[j + procW] = 0; stack[sp++] = j + procW; }
+    }
+    if (!best || pts.length > best.length) best = pts;
+  }
+  return best;
+}
 function autoDetectTable(d) {
   if (!tmaskOut.mask || tmaskOut.mask.length !== N) tmaskOut.mask = new Uint8Array(N);
   segment(d, tmaskOut, cfg.tHueMin, cfg.tHueMax, cfg.tSatMin, 100, cfg.tValMin, false);
   // close small gaps so the net, the centre line and glare do not split the surface into pieces
-  const r = Math.max(1, Math.round(procW / 160)), tmp = new Uint8Array(N); boxMax(tmaskOut.mask, tmp, procW, procH, r); boxMin(tmp, tmaskOut.mask, procW, procH, r);
-  const blobs = findBlobs(tmaskOut.mask, procW, procH, N * 0.03, N); let best = null;
-  for (const b of blobs) if (!best || b.area > best.area) best = b;
-  if (!best) { setFeedback('No table found', `Nothing large and ${cfg.tableColor === 'green' ? 'green' : cfg.tableColor === 'blue' ? 'blue' : 'of the picked colour'} is in view. Try Pick colour on the table surface, or tap its corners.`, 'warn'); return; }
-  cfg.corners = best.corners.map((c) => ({ x: (c.x + 0.5) / procW, y: (c.y + 0.5) / procH })); save(); rebuildTable();
-  setFeedback('Table found', 'Drag the corner handles if the outline is off. Bounces now map onto the table.', 'good');
+  let matched = 0; for (let i = 0; i < N; i++) if (tmaskOut.mask[i]) matched++;
+  const r = Math.max(1, Math.round(procW / 160)), tmp = new Uint8Array(N);
+  // camera noise speckles the mask, and closing alone would grow that speckle into one frame-sized region,
+  // so isolated pixels are removed first and only then are the gaps glare leaves in the surface filled
+  boxMin(tmaskOut.mask, tmp, procW, procH, 1); boxMax(tmp, tmaskOut.mask, procW, procH, 1);
+  boxMax(tmaskOut.mask, tmp, procW, procH, r); boxMin(tmp, tmaskOut.mask, procW, procH, r);
+  const region = largestRegion(tmaskOut.mask);
+  const colour = cfg.tableColor === 'green' ? 'green' : cfg.tableColor === 'blue' ? 'blue' : 'of the picked colour';
+  stats.find = { matched, region: region ? region.length : 0, frame: N, quad: null, solidity: 0 };
+  if (!region || region.length < N * 0.03) { setFeedback('No table found', `Nothing large and ${colour} is in view. Use Pick colour on the table surface, or tap its four corners.`, 'warn', true, 6000); return; }
+  const quad = largestQuad(convexHull(region)); stats.find.quad = quad;
+  if (!quad) { setFeedback('No table found', 'The surface found is not a clear rectangle. Tap the four corners instead.', 'warn', true, 6000); return; }
+  // A table fills its own outline; anything much emptier is a merge with a TV, a window or a doorway
+  const solidity = region.length / Math.max(1, quadArea(quad[0], quad[1], quad[2], quad[3])); stats.find.solidity = +solidity.toFixed(3);
+  if (solidity < 0.7) { setFeedback('Table not clear enough', `The ${colour} shapes in view do not form one rectangle, so the outline would be wrong. Tap the four corners instead.`, 'warn', true, 6000); return; }
+  const xs = quad.map((c) => c[0]), ys = quad.map((c) => c[1]);
+  const spansWidth = (Math.max(...xs) - Math.min(...xs)) > procW * 0.8, hugsTop = Math.min(...ys) < procH * 0.02;
+  if (spansWidth && hugsTop) { setFeedback('That is a wall, not the table', `A ${colour} area fills the top of the frame. Tap the four corners of the table instead.`, 'warn', true, 6000); return; }
+  cfg.corners = quad.map((c) => ({ x: (c[0] + 0.5) / procW, y: (c[1] + 0.5) / procH })); cfg.cornersManual = false; save(); rebuildTable();
+  setFeedback('Table found', 'Drag any corner handle that sits off the edge. Bounces now map onto the table.', 'good');
 }
 
 // ---------- Overlay on the video ----------
@@ -1240,6 +1303,7 @@ async function startCamera(deviceId) {
   setFeedback(table.H ? 'Waiting for a serve' : 'Set the table', table.H ? 'The table is set. Only a moving ball over it is tracked.' : 'Tap Set table, then Find table automatically or tap its four corners. Nothing is tracked until the table is known.', table.H ? 'none' : 'warn', true);
   enterStage();
   const trackEl = stream.getVideoTracks()[0]; if (trackEl) trackEl.addEventListener('ended', () => { if (src.kind === 'camera') stopCamera(); });
+  if (!cfg.cornersManual && cfg.corners) { cfg.corners = null; rebuildTable(); } // an automatic guess from another source means nothing here
   setTimeout(() => { if (src.kind === 'camera' && !table.H) wantTableDetect = true; }, 1500);
   listDevices(); schedule();
 }
@@ -1297,20 +1361,20 @@ view.addEventListener('pointerdown', (e) => {
   const n = toNorm(e); ensureAudio();
   if (mode === 'corners') {
     tapPts.push(n);
-    if (tapPts.length === 4) { cfg.corners = tapPts.slice(); save(); rebuildTable(); setMode('none'); setFeedback('Table set', 'Drag a corner handle any time to adjust it.', 'good'); }
+    if (tapPts.length === 4) { cfg.corners = tapPts.slice(); cfg.cornersManual = true; save(); rebuildTable(); setMode('none'); setFeedback('Table set', 'Drag a corner handle any time to adjust it.', 'good'); }
     else updateHint();
   } else if (mode === 'pickBall') { samplePick(n, 'ball'); setMode('none'); }
   else if (mode === 'pickTable') { samplePick(n, 'table'); setMode('none'); }
   else { const i = nearestCorner(n); if (i >= 0) { drag = i; try { view.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ } } }
 });
 view.addEventListener('pointermove', (e) => { if (drag == null) return; cfg.corners[drag] = toNorm(e); rebuildTable(); });
-const endDrag = () => { if (drag == null) return; drag = null; save(); };
+const endDrag = () => { if (drag == null) return; drag = null; cfg.cornersManual = true; save(); };
 view.addEventListener('pointerup', endDrag); view.addEventListener('pointercancel', endDrag);
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && mode !== 'none') setMode('none'); });
 
 // ---------- Controls ----------
 const BALL_PRESETS = { orange: { hueMin: 10, hueMax: 40, satMin: 55, satMax: 100, valMin: 50, motionGate: true }, white: { hueMin: 0, hueMax: 360, satMin: 0, satMax: 22, valMin: 75, motionGate: true } };
-const TABLE_PRESETS = { blue: { tHueMin: 195, tHueMax: 250, tSatMin: 30, tValMin: 15 }, green: { tHueMin: 80, tHueMax: 170, tSatMin: 25, tValMin: 12 } };
+const TABLE_PRESETS = { blue: { tHueMin: 205, tHueMax: 265, tSatMin: 10, tValMin: 25 }, green: { tHueMin: 85, tHueMax: 175, tSatMin: 12, tValMin: 20 } };
 const RANGES = ['hueMin', 'hueMax', 'satMin', 'satMax', 'valMin', 'radMin', 'radMax', 'motionThr', 'zoneH', 'returnWin'];
 const CHECKS = ['motionGate', 'showMask', 'showTrail', 'sound', 'voice', 'sizeAuto', 'zoneOn'];
 function syncControls() {

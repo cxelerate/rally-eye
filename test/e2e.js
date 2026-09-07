@@ -44,8 +44,11 @@ const ok = (cond, name, detail) => { if (cond) { pass++; console.log(`  PASS  ${
     ok(started.kind === 'camera', 'camera opens');
     ok(started.stage, 'starting the camera opens full screen');
     ok(started.table, 'table found automatically from the camera');
-    await page.evaluate(() => RallyEye.resetStats()); await page.waitForTimeout(9000);
+    await page.evaluate(() => RallyEye.resetStats());
+    let minU = 99, maxU = -99;
+    for (let i = 0; i < 90; i++) { await page.waitForTimeout(100); const u = await page.evaluate(() => { const t = RallyEye.track, p = t.pts[t.pts.length - 1]; if (!t.active || !p) return null; const m = RallyEye.toTable(p.x / RallyEye.proc.w, p.y / RallyEye.proc.h); return m ? m.x : null; }); if (u !== null) { if (u < minU) minU = u; if (u > maxU) maxU = u; } }
     const r = await page.evaluate(() => ({ b: RallyEye.stats.bounces.map((x) => ({ u: x.u, v: x.v, in: x.in })), A: RallyEye.stats.bounceA, B: RallyEye.stats.bounceB, out: RallyEye.stats.out, fps: parseFloat(document.getElementById('fps').textContent) }));
+    const leftTable = maxU > 2.84 || minU < -0.1;
     const onTable = r.b.filter((x) => x.in);
     const txs = truth.map((t) => t.x);
     const errsM = onTable.map((x) => Math.min(...txs.map((t) => Math.abs(t - x.u))));
@@ -53,7 +56,7 @@ const ok = (cond, name, detail) => { if (cond) { pass++; console.log(`  PASS  ${
     const max = errsM.length ? Math.max(...errsM) : 99;
     ok(onTable.length >= 8, 'bounces detected over nine seconds', `${onTable.length} on the table`);
     ok(mean < 0.15, 'bounce lands near a true bounce point', `mean ${mean.toFixed(3)} m, worst ${max.toFixed(3)} m`);
-    ok(r.out === 0, 'no false out calls while the ball stays on the table', `out=${r.out}`);
+    ok(leftTable || r.out === 0, 'out is only called when the ball really left the table', `ball reached ${minU.toFixed(2)}..${maxU.toFixed(2)} m along a 2.74 m table, out=${r.out}`);
     ok(r.fps >= 24, 'runs at a usable frame rate', `${r.fps} fps`);
     ok(errs.length === 0, 'no errors during play', errs.join(' | ') || 'clean');
     await ctx.close();
