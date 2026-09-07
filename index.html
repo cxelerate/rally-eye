@@ -325,7 +325,7 @@
         <div class="range"><div class="row"><span>Ball size in the frame</span><span class="val" id="vSize">2–24 px</span></div>
           <input type="range" id="radMin" min="1" max="20" step="1" value="2" aria-label="Minimum ball radius">
           <input type="range" id="radMax" min="4" max="60" step="1" value="24" aria-label="Maximum ball radius"></div>
-        <label class="check"><input type="checkbox" id="motionGate"> Only accept a moving ball (helps with white balls and busy rooms)</label>
+        <label class="check"><input type="checkbox" id="motionGate"> Only accept a moving ball (recommended; anything sitting still is ignored)</label>
       </div>
     </details>
 
@@ -356,7 +356,7 @@
       <summary>Detection</summary>
       <div class="group-body">
         <div class="row"><span>Processing width</span>
-          <select id="procW" aria-label="Processing width"><option value="240">240 px, fastest</option><option value="320" selected>320 px</option><option value="480">480 px, most precise</option></select></div>
+          <select id="procW" aria-label="Processing width"><option value="240">240 px, fastest</option><option value="320">320 px</option><option value="480" selected>480 px</option><option value="640">640 px, most precise</option></select></div>
         <div class="range"><div class="row"><span>Motion threshold</span><span class="val" id="vMotion">28</span></div>
           <input type="range" id="motionThr" min="5" max="80" step="1" value="28" aria-label="Motion threshold"></div>
         <label class="check"><input type="checkbox" id="showMask"> Show what the tracker sees (colour mask)</label>
@@ -376,10 +376,11 @@
       <summary>Setup tips</summary>
       <div class="group-body">
         <ol class="tips">
+          <li><b>Teach it your ball first.</b> Hold the ball up in front of the camera, click <b>Pick from video</b> under Ball, and tap the ball. That fits the colour range to your ball under your light, which is what keeps skin, wood and warm walls out.</li>
           <li><b>Camera at the side of the table</b>, about level with the net, so the whole table fits in the frame. Bounces read best from the side.</li>
           <li><b>Steady light, plain background.</b> Turn off auto-exposure flicker if you can and keep orange or white objects out of view.</li>
           <li><b>Set the table once</b> with the automatic finder or by tapping its four corners. Keep the laptop still afterwards.</li>
-          <li><b>Check the mask</b> under Detection if the ball is missed: the ball should light up alone. Use Pick from video to sample its real colour.</li>
+          <li><b>Check the mask</b> under Detection: turn on "Show what the tracker sees" and only the ball should light up. If other things glow, raise Saturation or pick the colour again.</li>
         </ol>
       </div>
     </details>
@@ -399,15 +400,19 @@ const EDGE_TOL = 0.035;   // metres of slack when judging in or out (ball radius
 
 // ---------- Settings (persisted) ----------
 const defaults = {
-  preset: 'orange', hueMin: 8, hueMax: 45, satMin: 40, satMax: 100, valMin: 40,
-  radMin: 2, radMax: 24, motionGate: false, motionThr: 28,
+  preset: 'orange', hueMin: 10, hueMax: 40, satMin: 55, satMax: 100, valMin: 50,
+  radMin: 1, radMax: 14, motionGate: true, motionThr: 28,
   tableColor: 'blue', tHueMin: 195, tHueMax: 250, tSatMin: 30, tValMin: 15,
-  view: 'side', mirror: false, procW: 320, showMask: false, showTrail: true, sound: true, voice: false,
+  view: 'side', mirror: false, procW: 480, showMask: false, showTrail: true, sound: true, voice: false,
   corners: null // four {x, y} pairs, normalised 0..1 in frame coordinates: top-left, top-right, bottom-right, bottom-left
 };
 const cfg = Object.assign({}, defaults);
-try { const s = localStorage.getItem('rallyeye.v1'); if (s) Object.assign(cfg, JSON.parse(s)); } catch (e) { /* storage unavailable */ }
-function save() { try { localStorage.setItem('rallyeye.v1', JSON.stringify(cfg)); } catch (e) { /* ignore */ } }
+try {
+  const s2 = localStorage.getItem('rallyeye.v2');
+  if (s2) Object.assign(cfg, JSON.parse(s2));
+  else { const s1 = localStorage.getItem('rallyeye.v1'); if (s1) { const o = JSON.parse(s1); for (const k of ['corners', 'view', 'mirror', 'sound', 'voice', 'showTrail', 'tableColor', 'tHueMin', 'tHueMax', 'tSatMin', 'tValMin']) if (k in o) cfg[k] = o[k]; } }
+} catch (e) { /* storage unavailable */ }
+function save() { try { localStorage.setItem('rallyeye.v2', JSON.stringify(cfg)); } catch (e) { /* ignore */ } }
 
 // ---------- Small maths ----------
 function solveLinear(A, b) { // Gaussian elimination with partial pivoting; A is n×n (array of rows), returns x or null
@@ -550,17 +555,20 @@ const view = $('view'), vctx = view.getContext('2d');
 const pc = document.createElement('canvas'); const pctx = pc.getContext('2d', { willReadFrequently: true });
 const maskCanvas = document.createElement('canvas'); const mctx = maskCanvas.getContext('2d');
 let procW = 320, procH = 180, N = 0;
-let mask, maskShow, gray, prevGray, stack, havePrev = false, lastData = null;
+let mask, maskShow, gray, prevGray, stack, staticCount, havePrev = false, lastData = null;
 function resizeForSource() {
   procW = Number(cfg.procW) || 320; procH = Math.max(8, Math.round(procW * src.h / src.w)); N = procW * procH;
   pc.width = procW; pc.height = procH; maskCanvas.width = procW; maskCanvas.height = procH;
-  mask = new Uint8Array(N); maskShow = new Uint8Array(N); gray = new Uint8Array(N); prevGray = new Uint8Array(N); stack = new Int32Array(N); havePrev = false;
+  mask = new Uint8Array(N); maskShow = new Uint8Array(N); gray = new Uint8Array(N); prevGray = new Uint8Array(N); stack = new Int32Array(N); staticCount = new Uint8Array(N); havePrev = false;
+  cand.n = 0;
   view.width = src.w; view.height = src.h; $('viewport').style.aspectRatio = `${src.w} / ${src.h}`;
   track.pts.length = 0; track.active = false; markers.length = 0;
 }
 
 // ---------- Tracking state ----------
-const track = { pts: [], vx: 0, vy: 0, active: false, lost: 0, lastSeen: 0, speedPx: 0, kmh: null, kmhSmooth: null };
+const track = { pts: [], vx: 0, vy: 0, active: false, lost: 0, lastSeen: 0, speedPx: 0, kmh: null, kmhSmooth: null, r: 0 };
+const cand = { x: 0, y: 0, vx: 0, vy: 0, t: 0, n: 0, r: 0 }; // a tentative ball: promoted to the track after three coherent frames
+let candAvg = 0, hintMode = '';
 const ev = { yDir: 0, yRun: 0, low: null, pendBounce: null, queued: null, xDir: 0, xRun: 0, pendHit: null, lastBounceT: -1e9, lastHitT: -1e9 };
 const stats = { bounceA: 0, bounceB: 0, out: 0, best: 0, top: null, bounces: [], frames: 0 };
 const rally = { hits: 0, hitsSince: 0, lastBounceSide: null };
@@ -619,15 +627,29 @@ function findBlobs(m, w, h, minArea, maxArea) {
   return blobs;
 }
 
-function pickBall(blobs, pred, searchR) {
+// Ball-like: compact and roughly round. Motion blur stretches a fast ball, so some elongation is allowed.
+function shapeOk(b) {
+  const aspect = b.w / b.h; if (aspect < 0.45 || aspect > 2.2) return false;
+  const fill = b.area / (b.w * b.h); if (fill < 0.45) return false;
+  if (Math.min(b.w, b.h) > cfg.radMax * 2.2) return false;
+  return true;
+}
+// With a prediction, only blobs within searchR count, and their size must stay close to the tracked ball's.
+function pickBall(blobs, pred, searchR, rRef) {
   let best = null, bestScore = -1;
   for (const b of blobs) {
-    const aspect = b.w / b.h; if (aspect < 0.4 || aspect > 2.6) continue;
-    const fill = b.area / (b.w * b.h); if (fill < 0.35) continue;
+    if (!shapeOk(b)) continue;
+    const r = Math.min(b.w, b.h) / 2;
+    let prox = 0;
+    if (pred) {
+      const dist = Math.hypot(b.cx - pred.x, b.cy - pred.y); if (dist > searchR) continue;
+      if (rRef > 0 && (r > rRef * 2.2 || r < rRef / 2.2)) continue;
+      prox = 1.3 * (1 - dist / searchR);
+    }
+    const fill = b.area / (b.w * b.h), aspect = b.w / b.h;
     const circ = 1 - Math.min(1, Math.abs(fill - 0.785) / 0.45);
-    const asp = 1 - Math.min(1, Math.abs(Math.log(aspect)) / Math.log(2.6));
-    let score = circ * 0.55 + asp * 0.3 + 0.15 * Math.min(1, b.area / 40);
-    if (pred) { const dist = Math.hypot(b.cx - pred.x, b.cy - pred.y); score += 1.3 * Math.max(0, 1 - dist / searchR); }
+    const asp = 1 - Math.min(1, Math.abs(Math.log(aspect)) / Math.log(2.2));
+    const score = circ * 0.55 + asp * 0.3 + 0.15 * Math.min(1, b.area / 40) + prox;
     if (score > bestScore) { bestScore = score; best = b; }
   }
   return best;
@@ -645,6 +667,9 @@ function processFrame(now) {
 
   segment(d, { mask, gray }, cfg.hueMin, cfg.hueMax, cfg.satMin, cfg.satMax, cfg.valMin, true);
   const last = track.pts.length ? track.pts[track.pts.length - 1] : null;
+  // Anything that has looked like the ball on the same pixels for over a second is furniture, not a ball
+  const staticFrames = Math.max(20, Math.min(120, Math.round((fps || 30) * 1.2)));
+  for (let i = 0; i < N; i++) { if (mask[i]) { if (staticCount[i] < 255) staticCount[i]++; if (staticCount[i] > staticFrames) mask[i] = 0; } else staticCount[i] = 0; }
   if (cfg.motionGate && havePrev) {
     const thr = cfg.motionThr, keepR2 = Math.pow(cfg.radMax * 2, 2);
     for (let i = 0; i < N; i++) {
@@ -659,14 +684,35 @@ function processFrame(now) {
 
   const minArea = Math.max(3, Math.PI * cfg.radMin * cfg.radMin * 0.6), maxArea = Math.PI * cfg.radMax * cfg.radMax * 1.6;
   const blobs = findBlobs(mask, procW, procH, minArea, maxArea);
-  let pred = null, searchR = procW * 0.14;
-  if (last && track.active) { const dt = Math.min(0.25, (now - last.t) / 1000); pred = { x: last.x + track.vx * dt, y: last.y + track.vy * dt }; searchR = procW * 0.12 + track.speedPx * dt * 1.5; }
-  const b = pickBall(blobs, pred, searchR);
-  if (b) updateTrack(b.cx, b.cy, now, b);
-  else {
-    track.lost++;
-    if (track.active && track.lost > 12) { track.active = false; resetEvents(); track.kmhSmooth = null; setFeedback('Searching for the ball', 'Ball lost from view. Check the colour mask under Detection if this keeps happening.', 'none', true); }
+  let nCand = 0; for (const b of blobs) if (shapeOk(b)) nCand++;
+  candAvg = candAvg * 0.9 + nCand * 0.1;
+  if (track.active && last) {
+    const dt = Math.min(0.25, (now - last.t) / 1000);
+    const pred = { x: last.x + track.vx * dt, y: last.y + track.vy * dt }, searchR = procW * 0.1 + track.speedPx * dt * 1.5;
+    const b = pickBall(blobs, pred, searchR, track.r);
+    if (b) updateTrack(b.cx, b.cy, now, b);
+    else {
+      track.lost++;
+      if (track.lost > 12) { track.active = false; cand.n = 0; resetEvents(); track.kmhSmooth = null; setFeedback('Searching for the ball', 'Ball lost from view. Check the colour mask under Detection if this keeps happening.', 'none', true); }
+      if (rally.hits > 0 && now - last.t > 2000) endRally('the ball left the frame');
+    }
+  } else {
+    // Tentative: a new ball must be seen on three consecutive frames along a plausible path before it counts
+    let b = null;
+    if (cand.n) { const dt = Math.min(0.25, (now - cand.t) / 1000); b = pickBall(blobs, { x: cand.x + cand.vx * dt, y: cand.y + cand.vy * dt }, procW * 0.08 + Math.hypot(cand.vx, cand.vy) * dt * 1.5, cand.r); }
+    if (b) { const dt = (now - cand.t) / 1000; if (dt > 0) { cand.vx = (b.cx - cand.x) / dt; cand.vy = (b.cy - cand.y) / dt; } cand.n++; }
+    else { b = pickBall(blobs, null, 0, 0); cand.n = b ? 1 : 0; cand.vx = 0; cand.vy = 0; }
+    if (b) { cand.x = b.cx; cand.y = b.cy; cand.t = now; cand.r = Math.min(b.w, b.h) / 2; }
+    if (cand.n >= 3) { track.lost = 99; track.pts.length = 0; updateTrack(b.cx, b.cy, now, b); }
     if (rally.hits > 0 && last && now - last.t > 2000) endRally('the ball left the frame');
+    if (src.kind === 'camera') {
+      const mode = candAvg > 3 ? 'many' : nCand === 0 && candAvg < 0.2 ? 'none' : '';
+      if (mode !== hintMode) {
+        hintMode = mode;
+        if (mode === 'many') setFeedback('Too many things look like the ball', `About ${Math.round(candAvg)} ball-coloured blobs in view. Hold the ball up and use Pick from video so the colour range fits it exactly, or raise Saturation.`, 'warn', true);
+        else if (mode === 'none') setFeedback('Searching for the ball', cfg.preset === 'white' ? 'Nothing white and moving in view. Move the ball, or use Pick from video on it.' : 'Nothing ball-coloured in view. If your ball is white, choose the White preset. Otherwise hold the ball up and use Pick from video.', 'none', true);
+      }
+    }
   }
   stats.frames++;
   draw(now);
@@ -675,11 +721,12 @@ function processFrame(now) {
 
 function updateTrack(x, y, now, blob) {
   const pts = track.pts; const prev = pts.length ? pts[pts.length - 1] : null;
-  const p = { x, y, t: now, r: Math.sqrt(blob.area / Math.PI), hh: blob.h / 2 };
+  const r = Math.min(blob.w, blob.h) / 2; track.r = track.active ? track.r * 0.7 + r * 0.3 : r;
+  const p = { x, y, t: now, r, hh: blob.h / 2 };
   if (prev && track.lost < 8) {
     const dt = (now - prev.t) / 1000;
     if (dt > 0) { const nvx = (x - prev.x) / dt, nvy = (y - prev.y) / dt; track.vx = track.active ? track.vx * 0.35 + nvx * 0.65 : nvx; track.vy = track.active ? track.vy * 0.35 + nvy * 0.65 : nvy; }
-  } else { track.vx = 0; track.vy = 0; resetEvents(); if (!track.active) setFeedback('Tracking the ball', table.H ? 'Speed and bounces are live.' : 'Set the table to judge in or out and read speeds in km/h.', 'good', true); }
+  } else { track.vx = 0; track.vy = 0; resetEvents(); if (!track.active) { hintMode = ''; setFeedback('Tracking the ball', table.H ? 'Speed and bounces are live.' : 'Set the table to judge in or out and read speeds in km/h.', 'good', true); } }
   const wasLost = track.lost >= 8;
   track.lost = 0; track.active = true; track.lastSeen = now; track.speedPx = Math.hypot(track.vx, track.vy);
   pts.push(p); if (pts.length > 24) pts.shift();
@@ -978,8 +1025,8 @@ function samplePick(n, what) {
   if (!k) return; const hsv = rgbToHsv(r / k, g / k, b / k), S = hsv.s * 100, V = hsv.v * 100;
   const wrap = (h) => ((h % 360) + 360) % 360;
   if (what === 'ball') {
-    if (S < 22) Object.assign(cfg, { hueMin: 0, hueMax: 360, satMin: 0, satMax: Math.min(100, Math.round(S + 18)), valMin: Math.max(30, Math.round(V - 25)), motionGate: true });
-    else Object.assign(cfg, { hueMin: Math.round(wrap(hsv.h - 14)), hueMax: Math.round(wrap(hsv.h + 14)), satMin: Math.max(0, Math.round(S - 25)), satMax: 100, valMin: Math.max(10, Math.round(V - 30)) });
+    if (S < 22) Object.assign(cfg, { hueMin: 0, hueMax: 360, satMin: 0, satMax: Math.min(100, Math.round(S + 15)), valMin: Math.max(35, Math.round(V - 22)), motionGate: true });
+    else Object.assign(cfg, { hueMin: Math.round(wrap(hsv.h - 10)), hueMax: Math.round(wrap(hsv.h + 10)), satMin: Math.max(20, Math.round(S - 20)), satMax: 100, valMin: Math.max(15, Math.round(V - 30)), motionGate: true });
     cfg.preset = 'custom'; setFeedback('Ball colour sampled', `Hue ${Math.round(hsv.h)}°, saturation ${Math.round(S)}%, brightness ${Math.round(V)}%. Turn on the colour mask to check it.`, 'good');
   } else {
     Object.assign(cfg, { tHueMin: Math.round(wrap(hsv.h - 18)), tHueMax: Math.round(wrap(hsv.h + 18)), tSatMin: Math.max(8, Math.round(S - 25)), tValMin: Math.max(5, Math.round(V - 35)), tableColor: 'custom' });
@@ -1003,7 +1050,7 @@ view.addEventListener('pointerup', endDrag); view.addEventListener('pointercance
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && mode !== 'none') setMode('none'); });
 
 // ---------- Controls ----------
-const BALL_PRESETS = { orange: { hueMin: 8, hueMax: 45, satMin: 40, satMax: 100, valMin: 40, motionGate: false }, white: { hueMin: 0, hueMax: 360, satMin: 0, satMax: 25, valMin: 72, motionGate: true } };
+const BALL_PRESETS = { orange: { hueMin: 10, hueMax: 40, satMin: 55, satMax: 100, valMin: 50, motionGate: true }, white: { hueMin: 0, hueMax: 360, satMin: 0, satMax: 22, valMin: 75, motionGate: true } };
 const TABLE_PRESETS = { blue: { tHueMin: 195, tHueMax: 250, tSatMin: 30, tValMin: 15 }, green: { tHueMin: 80, tHueMax: 170, tSatMin: 25, tValMin: 12 } };
 const RANGES = ['hueMin', 'hueMax', 'satMin', 'satMax', 'valMin', 'radMin', 'radMax', 'motionThr'];
 const CHECKS = ['motionGate', 'showMask', 'showTrail', 'sound', 'voice'];
