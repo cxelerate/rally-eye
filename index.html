@@ -231,37 +231,89 @@
   .tips b { color: var(--text); font-weight: 500; }
   .foot { color: var(--muted); font-size: 12px; padding: 0 16px 24px; max-width: 1440px; margin: 0 auto; }
 
-  /* Full-screen stage: the video fills the window, the scoreboard and feedback float over it, settings slide in from the right */
-  .hud { position: absolute; z-index: 5; display: none; gap: 8px; }
-  .hud-tl { top: 12px; left: 12px; flex-wrap: wrap; align-items: stretch; }
-  .hud-tr { top: 12px; right: 12px; flex-wrap: wrap; justify-content: flex-end; }
-  .hud .btn { background: rgba(13, 18, 24, 0.72); color: #F4F7FA; border-color: rgba(255, 255, 255, 0.18); backdrop-filter: blur(6px); min-height: 40px; }
-  .hud .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
-  .chip { background: rgba(13, 18, 24, 0.72); color: #F4F7FA; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px; padding: 6px 12px; min-width: 76px; backdrop-filter: blur(6px); }
-  .chip .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(244, 247, 250, 0.7); white-space: nowrap; }
-  .chip .v { font-family: var(--font-display); font-size: 26px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
-  .chip .v small { font-family: var(--font-body); font-size: 11px; font-weight: 400; margin-left: 4px; color: rgba(244, 247, 250, 0.7); }
-  body.stage { overflow: hidden; }
-  body.stage .top, body.stage .foot { display: none; }
-  body.stage .viewport { position: fixed; inset: 0; z-index: 20; border: 0; border-radius: 0; aspect-ratio: auto; display: grid; place-items: center; background: #000; }
-  body.stage .viewport canvas { width: auto; height: auto; }
-  body.stage .hud { display: flex; }
-  body.stage .hint { top: 12px; left: 50%; right: auto; transform: translateX(-50%); width: min(640px, calc(100vw - 24px)); z-index: 6; }
-  body.stage .feedback {
-    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 30;
-    width: min(760px, calc(100vw - 24px)); background: rgba(13, 18, 24, 0.78); color: #F4F7FA; border-color: rgba(255, 255, 255, 0.14); backdrop-filter: blur(8px);
+  /* Full-screen stage: the video fills the window and one grid overlay holds every control, so nothing can overlap.
+     Row 1 is the top bar, row 2 takes the slack and carries the hint, row 3 is the feedback strip. */
+  .stageui {
+    position: fixed; inset: 0; z-index: 30; display: none;
+    grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; padding: 12px; pointer-events: none;
   }
+  body.stage .stageui { display: grid; }
+  .stageui .srow { display: flex; min-width: 0; }
+  .stageui .srow-top { align-items: flex-start; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .stageui .srow-mid { flex-direction: column; align-items: center; justify-content: flex-start; gap: 8px; overflow: hidden; }
+  .stageui .srow-bot { align-items: flex-end; justify-content: center; }
+  .stageui .grp { display: flex; gap: 6px; flex-wrap: wrap; min-width: 0; pointer-events: auto; }
+  .stageui .grp.right { justify-content: flex-end; }
+  .stageui .btn {
+    background: rgba(13, 18, 24, 0.78); color: #F4F7FA; border-color: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(6px); min-height: 40px;
+  }
+  .stageui .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .chip {
+    background: rgba(13, 18, 24, 0.78); color: #F4F7FA; border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px; padding: 5px 10px; min-width: 68px; backdrop-filter: blur(6px);
+  }
+  .chip .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(244, 247, 250, 0.7); white-space: nowrap; }
+  .chip .v { font-family: var(--font-display); font-size: 24px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .chip .v small { font-family: var(--font-body); font-size: 11px; font-weight: 400; margin-left: 3px; color: rgba(244, 247, 250, 0.7); }
+  body.stage { overflow: hidden; }
+  body.stage > header.top, body.stage > p.foot { display: none; }
+  body.stage .viewport {
+    position: fixed; inset: 0; z-index: 20; border: 0; border-radius: 0; aspect-ratio: auto;
+    display: grid; place-items: center; background: #000;
+  }
+  body.stage .viewport canvas { width: auto; height: auto; }
+  body.stage .hint {
+    position: static; transform: none; width: min(560px, 100%); pointer-events: auto;
+    background: var(--scrim); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  }
+  body.stage .feedback {
+    width: min(720px, 100%); pointer-events: auto; padding: 10px 14px 10px 10px; min-height: 0;
+    background: rgba(13, 18, 24, 0.82); color: #F4F7FA; border-color: rgba(255, 255, 255, 0.16);
+    backdrop-filter: blur(8px); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  }
+  body.stage .feedback .fb-text { font-size: clamp(19px, 2.4vw, 28px); }
+  body.stage .feedback .fb-side .big { font-size: 30px; }
   body.stage .feedback .fb-sub, body.stage .feedback .cap { color: rgba(244, 247, 250, 0.72); }
+  .scrim { position: fixed; inset: 0; z-index: 39; background: rgba(6, 9, 13, 0.5); display: none; }
+  body.stage .scrim.on { display: block; }
   body.stage .rail {
     position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: min(400px, 100vw); overflow: auto; padding: 12px;
-    background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow);
-    transform: translateX(100%); transition: transform 0.2s ease;
+    background: var(--surface); border-left: 1px solid var(--border);
+    transform: translateX(100%); transition: transform 0.2s ease; visibility: hidden;
   }
-  body.stage .rail.open { transform: translateX(0); }
-  body.stage .drawer-head { display: flex; }
+  body.stage .rail.open { transform: translateX(0); visibility: visible; }
+  body.stage .drawer-head { display: flex; position: sticky; top: -12px; background: var(--surface); padding: 4px 0 8px; margin-top: -4px; z-index: 1; }
   .drawer-head { display: none; justify-content: space-between; align-items: center; }
   .drawer-head b { font-family: var(--font-display); font-size: 18px; text-transform: uppercase; letter-spacing: 0.06em; }
   body.stage .toolbar { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+  .rotate {
+    display: none; pointer-events: auto; align-items: center; gap: 10px;
+    background: var(--accent); color: var(--accent-ink); border-radius: 8px; padding: 10px 14px;
+    font-weight: 600; width: min(420px, 100%); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  }
+  body.stage .rotate.on { display: flex; }
+  .rotate .turn { font-size: 20px; line-height: 1; }
+  /* A phone held upright: shrink the bar so the picture keeps the room */
+  @media (orientation: portrait) and (max-width: 560px) {
+    .stageui { padding: 8px; gap: 8px; }
+    .chip { min-width: 0; flex: 1 1 0; padding: 3px 6px; }
+    .chip .k { font-size: 9px; letter-spacing: 0.04em; }
+    .chip .v { font-size: 17px; }
+    .chip .v small { font-size: 9px; margin-left: 2px; }
+    .stageui .grp { flex: 1 1 100%; gap: 4px; }
+    .stageui .grp.right { justify-content: stretch; }
+    .stageui .grp.right .btn { flex: 1 1 auto; min-height: 38px; padding: 6px 8px; font-size: 13px; }
+  }
+  /* A short window (a phone held landscape) gets a leaner overlay */
+  @media (max-height: 460px) {
+    .stageui { padding: 8px; gap: 6px; }
+    .chip { min-width: 54px; padding: 3px 8px; }
+    .chip .v { font-size: 18px; }
+    .stageui .btn { min-height: 34px; padding: 5px 10px; font-size: 13px; }
+    body.stage .feedback { padding: 6px 10px 6px 8px; }
+    body.stage .feedback .fb-sub { display: none; }
+  }
   @media (prefers-reduced-motion: reduce) { body.stage .rail { transition: none; } }
   @media (prefers-reduced-motion: no-preference) {
     .pill[data-state="starting"]::before { animation: blink 1s infinite; }
@@ -296,24 +348,34 @@
     <div class="viewport" id="viewport" data-mode="none">
       <canvas id="view" width="960" height="540" aria-label="Camera view with tracking overlay"></canvas>
       <video id="cam" playsinline muted autoplay hidden></video>
-      <div class="hint" id="hint" hidden>
-        <span id="hintText"></span>
-        <button class="btn small" id="hintCancel" type="button">Cancel</button>
-      </div>
-      <div class="hud hud-tl" aria-label="Scoreboard">
-        <div class="chip"><div class="k">Speed</div><div class="v" id="hSpeed">—<small id="hSpeedU">km/h</small></div></div>
-        <div class="chip"><div class="k">Rally</div><div class="v" id="hRally">0</div></div>
-        <div class="chip"><div class="k" id="hLblA">Left</div><div class="v" id="hA">0</div></div>
-        <div class="chip"><div class="k" id="hLblB">Right</div><div class="v" id="hB">0</div></div>
-        <div class="chip"><div class="k">Out</div><div class="v" id="hOut">0</div></div>
-      </div>
-      <div class="hud hud-tr">
-        <button class="btn primary" type="button" id="hudStart">Start camera</button>
-        <button class="btn" type="button" id="hudTable">Set table</button>
-        <button class="btn" type="button" id="hudSettings">Settings</button>
-        <button class="btn" type="button" id="hudExit">Exit full screen</button>
-      </div>
     </div>
+
+    <div class="stageui" id="stageUi">
+      <div class="srow srow-top">
+        <div class="grp" id="slotScore" aria-label="Scoreboard">
+          <div class="chip"><div class="k">Speed</div><div class="v" id="hSpeed">—<small id="hSpeedU">km/h</small></div></div>
+          <div class="chip"><div class="k">Rally</div><div class="v" id="hRally">0</div></div>
+          <div class="chip"><div class="k" id="hLblA">Left</div><div class="v" id="hA">0</div></div>
+          <div class="chip"><div class="k" id="hLblB">Right</div><div class="v" id="hB">0</div></div>
+          <div class="chip"><div class="k">Out</div><div class="v" id="hOut">0</div></div>
+        </div>
+        <div class="grp right">
+          <button class="btn primary" type="button" id="hudStart">Start camera</button>
+          <button class="btn" type="button" id="hudTable">Set table</button>
+          <button class="btn" type="button" id="hudSettings">Settings</button>
+          <button class="btn" type="button" id="hudExit">Exit full screen</button>
+        </div>
+      </div>
+      <div class="srow srow-mid" id="slotHint">
+        <div class="rotate" id="rotate"><span class="turn" aria-hidden="true">⟳</span><span>Turn your phone sideways. The table needs the long view.</span></div>
+        <div class="hint" id="hint" hidden>
+          <span id="hintText"></span>
+          <button class="btn small" id="hintCancel" type="button">Cancel</button>
+        </div>
+      </div>
+      <div class="srow srow-bot" id="slotFb"></div>
+    </div>
+    <div class="scrim" id="scrim"></div>
 
     <div class="toolbar" id="toolbar">
       <button class="btn primary" id="btnStart" type="button">Start camera</button>
@@ -507,7 +569,7 @@ function rgbToHsv(r, g, b) {
 function mulberry32(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 
 // ---------- Table model: image (normalised) -> table (metres) ----------
-const table = { H: null, Hinv: null, zone: null };
+const table = { H: null, Hinv: null, zone: null, mppMid: 0, mppMin: 0, mppMax: 0, rMin: 0, rMax: 0 };
 function tableTargets() { // where the four tapped corners land on the table, by camera position
   return cfg.view === 'end'
     ? [{ x: TABLE_L, y: 0 }, { x: TABLE_L, y: TABLE_W }, { x: 0, y: TABLE_W }, { x: 0, y: 0 }]   // far end is at the top of the frame
@@ -522,13 +584,23 @@ function rebuildTable() {
   }
   stats.top = null; track.kmhSmooth = null; // units change between px/s and km/h
   updateZone(); updateTableUI();
+  hintMode = '';
+  setFeedback(table.H ? 'Waiting for a serve' : 'Set the table to start',
+    table.H ? 'Only a moving ball over the table is tracked. Serve to begin.' : 'Nothing is tracked until the table is known, so the room stays out of it.',
+    table.H ? 'none' : 'warn', true);
 }
 function mppAt(nx, ny) { // metres per processing pixel at a frame point, from the table plane along the image's horizontal axis
   const a = toTable(nx, ny), b = toTable(nx + 1 / procW, ny); return a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0;
 }
 // The play zone: the table's footprint, a little past each end, and up to cfg.zoneH metres above it. Balls elsewhere are ignored.
 function updateZone() {
-  table.zone = null; if (!table.H || !cfg.corners) return;
+  table.zone = null; table.mppMid = table.mppMin = table.mppMax = table.rMin = table.rMax = 0;
+  if (!table.H || !cfg.corners) return;
+  const c = toFrame(TABLE_L / 2, TABLE_W / 2), at = cfg.corners.map((p) => mppAt(p.x, p.y)).filter((v) => v > 0);
+  if (c && at.length === 4) {
+    table.mppMid = mppAt(c.x, c.y); table.mppMin = Math.min(...at); table.mppMax = Math.max(...at);
+    table.rMin = BALL_R / table.mppMax; table.rMax = BALL_R / table.mppMin; // apparent radius at the far and near edges
+  }
   const xs = cfg.corners.map((c) => c.x * procW), ys = cfg.corners.map((c) => c.y * procH);
   const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys), tw = maxx - minx, th = maxy - miny;
   const mpp = mppAt((cfg.corners[0].x + cfg.corners[1].x) / 2, (cfg.corners[0].y + cfg.corners[1].y) / 2) || TABLE_L / Math.max(1, tw);
@@ -720,9 +792,8 @@ function shapeOk(b) {
   const aspect = b.w / b.h; if (aspect < 0.45 || aspect > 2.2) return false;
   const fill = b.area / (b.w * b.h); if (fill < 0.45) return false;
   const r = Math.min(b.w, b.h) / 2;
-  if (cfg.sizeAuto && table.H) { // a 40 mm ball has a known size at that spot on the table
-    const mpp = mppAt(b.cx / procW, b.cy / procH);
-    if (mpp > 0) { const rExp = BALL_R / mpp; if (r < rExp * 0.45 || r > rExp * 2.2) return false; }
+  if (cfg.sizeAuto && table.rMin > 0) { // a 40 mm ball's apparent size is bounded by the table's near and far edges
+    if (r < table.rMin * 0.45 || r > table.rMax * 2.2) return false;
   } else if (r > cfg.radMax * 1.1) return false;
   if (cfg.satMax < 40 && brightContrast(b) < 18) return false; // a white ball stands out from what is around it; a shirt does not
   return true;
@@ -824,7 +895,7 @@ function processFrame(now) {
     }
   } else {
     // Tentative: a new ball must hold a smooth path at ball speed for four consecutive frames before it counts
-    const mppC = table.H ? mppAt(cand.n ? cand.x / procW : 0.5, cand.n ? cand.y / procH : 0.5) : 0;
+    const mppC = table.mppMid;
     const acqR = Math.max(procW * 0.06, mppC ? (12 / Math.max(15, fps || 30)) / mppC : procW * 0.1); // a 12 m/s ball's travel in one frame
     let b = null;
     if (cand.n) {
@@ -873,9 +944,10 @@ function updateTrack(x, y, now, blob) {
   pts.push(p); if (pts.length > 24) pts.shift();
   // speed in real units when the table is known: local metre-per-pixel scale from the homography
   if (table.H && pts.length > 2 && !wasLost) {
-    // one pixel sideways on the table plane gives metres per pixel at that depth; it holds for vertical motion too
-    const a = toTable(x / procW, y / procH), bx = toTable((x + 1) / procW, y / procH);
-    const mpp = Math.hypot(bx.x - a.x, bx.y - a.y);
+    // one pixel sideways on the table plane gives metres per pixel at that depth; a ball above the plane
+    // projects further out, so the value is held inside the range the table itself spans
+    let mpp = mppAt(x / procW, y / procH);
+    if (table.mppMin > 0) mpp = Math.min(table.mppMax, Math.max(table.mppMin, mpp));
     const kmh = track.speedPx * mpp * 3.6;
     if (kmh < 160) { track.kmh = kmh; track.kmhSmooth = track.kmhSmooth == null ? kmh : track.kmhSmooth * 0.6 + kmh * 0.4; if (track.kmhSmooth > 4 && (stats.top == null || track.kmhSmooth > stats.top)) stats.top = track.kmhSmooth; }
   } else if (!table.H) { track.kmh = null; const pxs = track.speedPx * src.w / procW; if (pts.length > 2 && !wasLost && (stats.top == null || pxs > stats.top)) stats.top = pxs; }
@@ -1148,7 +1220,7 @@ function explainCameraError(e) {
 async function startCamera(deviceId) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setStatus('error', 'No camera API'); setFeedback('Camera unavailable', 'This browser cannot open a camera here. Use Chrome, Edge, Safari or Firefox over https.', 'bad', true); return; }
   ensureAudio(); stopStream(); setStatus('starting', 'Starting camera'); $('btnStart').disabled = true;
-  const vc = { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 60 } };
+  const vc = { width: { ideal: 1280 }, height: { ideal: 720 }, aspectRatio: { ideal: 16 / 9 }, frameRate: { ideal: 60 } };
   if (deviceId) vc.deviceId = { exact: deviceId }; else vc.facingMode = 'user';
   try { stream = await navigator.mediaDevices.getUserMedia({ video: vc, audio: false }); }
   catch (e) { $('btnStart').disabled = false; setStatus('error', 'Camera blocked'); setFeedback('Camera did not start', explainCameraError(e), 'bad', true); if (inIframe) showFrameNotice(); return; }
@@ -1159,8 +1231,9 @@ async function startCamera(deviceId) {
   if (!video.videoWidth) { stopStream(); setStatus('error', 'No video'); setFeedback('Camera gave no video', 'The camera opened but sent no frames. Try another camera from the list.', 'bad', true); return; }
   setSource('camera'); resetEvents();
   setStatus('live', `Live · ${video.videoWidth}×${video.videoHeight}`);
+  if (video.videoHeight > video.videoWidth) setFeedback('Turn the device sideways', 'The camera is sending a tall picture. Landscape fits the whole table in the frame.', 'warn', true);
   $('btnStart').textContent = 'Stop camera'; $('hudStart').textContent = 'Stop camera'; $('btnDemo').setAttribute('aria-pressed', 'false');
-  setFeedback('Set the table', 'Tap Set table, then Find table automatically or tap its four corners. Only a moving ball over the table is tracked.', 'none', true);
+  setFeedback(table.H ? 'Waiting for a serve' : 'Set the table', table.H ? 'The table is set. Only a moving ball over it is tracked.' : 'Tap Set table, then Find table automatically or tap its four corners. Nothing is tracked until the table is known.', table.H ? 'none' : 'warn', true);
   enterStage();
   const trackEl = stream.getVideoTracks()[0]; if (trackEl) trackEl.addEventListener('ended', () => { if (src.kind === 'camera') stopCamera(); });
   setTimeout(() => { if (src.kind === 'camera' && !table.H) wantTableDetect = true; }, 1500);
@@ -1287,25 +1360,39 @@ new MutationObserver(drawMap).observe(document.documentElement, { attributes: tr
 // ---------- Full-screen stage ----------
 let stage = false;
 function fitStage() {
-  if (!stage) { view.style.width = ''; view.style.height = ''; return; }
+  const vp = $('viewport');
+  const portrait = window.innerHeight > window.innerWidth && window.innerWidth < 900;
+  $('rotate').classList.toggle('on', stage && portrait);
+  if (!stage) { view.style.width = ''; view.style.height = ''; vp.style.aspectRatio = `${src.w} / ${src.h}`; return; }
+  vp.style.aspectRatio = 'auto'; // the stage fills the window; the canvas is letterboxed inside it
   const k = Math.min(window.innerWidth / src.w, window.innerHeight / src.h);
   view.style.width = `${Math.floor(src.w * k)}px`; view.style.height = `${Math.floor(src.h * k)}px`;
 }
+const homes = new Map(); // where each moved element lives outside the stage
+function moveTo(el, slot) { if (!homes.has(el)) homes.set(el, { parent: el.parentNode, next: el.nextSibling }); slot.appendChild(el); }
+function moveHome(el) { const h = homes.get(el); if (h) { h.parent.insertBefore(el, h.next); homes.delete(el); } }
+function setDrawer(open) { $('rail').classList.toggle('open', open); $('scrim').classList.toggle('on', open); }
 function enterStage() {
   if (stage) return; stage = true; document.body.classList.add('stage');
-  $('rail').prepend($('toolbar')); $('rail').classList.remove('open'); fitStage(); updateStats();
-  try { const el = document.documentElement; if (el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen().catch(() => {}); } catch (e) { /* not available */ }
+  moveTo($('toolbar'), $('rail')); $('rail').prepend($('toolbar'));
+  moveTo($('feedback'), $('slotFb'));
+  setDrawer(false); fitStage(); updateStats();
+  try { const el = document.documentElement; if (el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen().then(lockLandscape).catch(() => {}); else lockLandscape(); } catch (e) { /* not available */ }
 }
 function exitStage() {
   if (!stage) return; stage = false; document.body.classList.remove('stage');
-  $('rail').classList.remove('open'); document.querySelector('.stage').insertBefore($('toolbar'), $('feedback')); fitStage();
+  setDrawer(false); moveHome($('toolbar')); moveHome($('feedback')); fitStage();
+  try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) { /* ignore */ }
   try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {}); } catch (e) { /* ignore */ }
 }
+// Phones open the camera in whatever way they are held; the table needs the long view, so ask for landscape
+function lockLandscape() { try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch (e) { /* desktop, or not permitted */ } }
 $('btnStage').addEventListener('click', enterStage);
 $('hudExit').addEventListener('click', exitStage);
-$('hudSettings').addEventListener('click', () => $('rail').classList.toggle('open'));
-$('drawerClose').addEventListener('click', () => $('rail').classList.remove('open'));
-$('hudTable').addEventListener('click', () => { $('rail').classList.remove('open'); if (table.H) { setMode('corners'); } else { wantTableDetect = true; setTimeout(() => { if (!table.H) setMode('corners'); }, 400); } });
+$('hudSettings').addEventListener('click', () => setDrawer(!$('rail').classList.contains('open')));
+$('drawerClose').addEventListener('click', () => setDrawer(false));
+$('scrim').addEventListener('click', () => setDrawer(false));
+$('hudTable').addEventListener('click', () => { setDrawer(false); if (table.H) { setMode('corners'); } else { wantTableDetect = true; setTimeout(() => { if (!table.H) setMode('corners'); }, 400); } });
 $('hudStart').addEventListener('click', () => $('btnStart').click());
 $('btnPopout').addEventListener('click', () => {
   let w = null; try { w = window.open(location.href.split('#')[0] + '#stage', 'rallyeye', 'popup,width=1280,height=760'); } catch (e) { w = null; }
@@ -1313,7 +1400,8 @@ $('btnPopout').addEventListener('click', () => {
 });
 window.addEventListener('resize', fitStage);
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && stage && !$('rail').classList.contains('open')) exitStage(); });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && stage) { if ($('rail').classList.contains('open')) $('rail').classList.remove('open'); else if (mode === 'none') exitStage(); } });
+try { if (screen.orientation) screen.orientation.addEventListener('change', () => setTimeout(fitStage, 150)); } catch (e) { /* older browsers */ }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && stage) { if ($('rail').classList.contains('open')) setDrawer(false); else if (mode === 'none') exitStage(); } });
 
 // ---------- Start ----------
 // Inside another page (the Claude panel, for instance) the camera is usually blocked by the embedding page's permissions
@@ -1335,6 +1423,7 @@ function standaloneHtml() {
   root.querySelectorAll('canvas').forEach((el) => { el.removeAttribute('style'); });
   const body = root.querySelector('body'); if (body) body.classList.remove('stage');
   const rail = root.querySelector('#rail'); if (rail) rail.classList.remove('open');
+  const scrim = root.querySelector('#scrim'); if (scrim) scrim.classList.remove('on');
   const notice = root.querySelector('#frameNotice'); if (notice) notice.hidden = true;
   return '<!doctype html>\n' + root.outerHTML;
 }

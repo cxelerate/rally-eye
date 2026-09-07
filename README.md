@@ -14,6 +14,7 @@ The page must be open in its own tab. Browsers do not pass camera permission int
 - Detects bounces and paddle hits, judges each bounce in or out, places it on a top-down map of the 2.74 m × 1.525 m table, counts the rally and calls double bounces. A ball that leaves beyond the table's edge stays live: a return from the same end continues the rally, and out is called only if nothing comes back within the return window (3 s by default).
 - Estimates ball speed in km/h from the table scale, and keeps top speed and best rally.
 - Gives live feedback in a scoreboard strip, with a click on every bounce, a low tone for out, and optional spoken rally counts.
+- Runs full screen: the camera fills the window, the scoreboard and buttons float in the corners, and settings slide in from the right over a scrim. Starting the camera opens it. The camera is asked for a landscape frame, orientation is locked to landscape where the browser allows it, and a phone held upright is told to turn sideways.
 
 A demo feed runs through the same tracker while the camera is off, so the page shows what it does before you set anything up.
 
