@@ -234,8 +234,10 @@
   /* Full-screen stage: the video fills the window and one grid overlay holds every control, so nothing can overlap.
      Row 1 is the top bar, row 2 takes the slack and carries the hint, row 3 is the feedback strip. */
   .stageui {
-    position: fixed; inset: 0; z-index: 30; display: none;
-    grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; padding: 12px; pointer-events: none;
+    position: fixed; left: 0; top: 0; z-index: 30; display: none;
+    width: var(--stage-w, 100vw); height: var(--stage-h, 100vh);
+    grid-template-rows: auto minmax(0, 1fr) auto; gap: 10px; pointer-events: none;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) calc(12px + env(safe-area-inset-left, 0px));
   }
   body.stage .stageui { display: grid; }
   .stageui .srow { display: flex; min-width: 0; }
@@ -256,10 +258,11 @@
   .chip .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(244, 247, 250, 0.7); white-space: nowrap; }
   .chip .v { font-family: var(--font-display); font-size: 24px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
   .chip .v small { font-family: var(--font-body); font-size: 11px; font-weight: 400; margin-left: 3px; color: rgba(244, 247, 250, 0.7); }
-  body.stage { overflow: hidden; }
+  body.stage { overflow: hidden; overscroll-behavior: none; touch-action: none; }
   body.stage > header.top, body.stage > p.foot { display: none; }
   body.stage .viewport {
-    position: fixed; inset: 0; z-index: 20; border: 0; border-radius: 0; aspect-ratio: auto;
+    position: fixed; left: 0; top: 0; z-index: 20; border: 0; border-radius: 0; aspect-ratio: auto;
+    width: var(--stage-w, 100vw); height: var(--stage-h, 100vh);
     display: grid; place-items: center; background: #000;
   }
   body.stage .viewport canvas { width: auto; height: auto; }
@@ -275,10 +278,11 @@
   body.stage .feedback .fb-text { font-size: clamp(19px, 2.4vw, 28px); }
   body.stage .feedback .fb-side .big { font-size: 30px; }
   body.stage .feedback .fb-sub, body.stage .feedback .cap { color: rgba(244, 247, 250, 0.72); }
-  .scrim { position: fixed; inset: 0; z-index: 39; background: rgba(6, 9, 13, 0.5); display: none; }
+  .scrim { position: fixed; left: 0; top: 0; width: var(--stage-w, 100vw); height: var(--stage-h, 100vh); z-index: 39; background: rgba(6, 9, 13, 0.5); display: none; }
   body.stage .scrim.on { display: block; }
   body.stage .rail {
-    position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: min(400px, 100vw); overflow: auto; padding: 12px;
+    position: fixed; top: 0; right: 0; height: var(--stage-h, 100vh); z-index: 40; width: min(400px, 100vw); overflow: auto;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) calc(12px + env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) 12px;
     background: var(--surface); border-left: 1px solid var(--border);
     transform: translateX(100%); transition: transform 0.2s ease; visibility: hidden;
   }
@@ -294,6 +298,15 @@
   }
   body.stage .rotate.on { display: flex; }
   .rotate .turn { font-size: 20px; line-height: 1; }
+  .install {
+    display: none; pointer-events: auto; gap: 10px; flex-direction: column;
+    background: rgba(13, 18, 24, 0.9); color: #F4F7FA; border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px; padding: 12px 14px; width: min(460px, 100%); box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+  }
+  body.stage .install.on { display: flex; }
+  .install b { font-family: var(--font-display); font-size: 17px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .install ol { margin: 0; padding-left: 20px; display: grid; gap: 3px; font-size: 13px; }
+  .install .row2 { display: flex; justify-content: flex-end; }
   /* A phone held upright: shrink the bar so the picture keeps the room */
   @media (orientation: portrait) and (max-width: 560px) {
     .stageui { padding: 8px; gap: 8px; }
@@ -368,6 +381,11 @@
       </div>
       <div class="srow srow-mid" id="slotHint">
         <div class="rotate" id="rotate"><span class="turn" aria-hidden="true">⟳</span><span>Turn your phone sideways. The table needs the long view.</span></div>
+        <div class="install" id="install">
+          <b>Get rid of the browser bars</b>
+          <ol id="installSteps"></ol>
+          <div class="row2"><button class="btn small" type="button" id="installDismiss">Not now</button></div>
+        </div>
         <div class="hint" id="hint" hidden>
           <span id="hintText"></span>
           <button class="btn small" id="hintCancel" type="button">Cancel</button>
@@ -523,7 +541,7 @@ const defaults = {
   preset: 'white', hueMin: 0, hueMax: 360, satMin: 0, satMax: 22, valMin: 75,
   radMin: 1, radMax: 14, motionGate: true, motionThr: 22, sizeAuto: true, zoneOn: true, zoneH: 0.8, returnWin: 3,
   tableColor: 'blue', tHueMin: 205, tHueMax: 265, tSatMin: 10, tValMin: 25,
-  view: 'side', mirror: false, procW: 480, showMask: false, showTrail: true, sound: true, voice: false,
+  view: 'side', mirror: false, procW: 480, showMask: false, showTrail: true, sound: true, voice: false, installDismissed: false,
   corners: null, // four {x, y} pairs, normalised 0..1 in frame coordinates: top-left, top-right, bottom-right, bottom-left
   cornersManual: false // true once a person taps or drags them, which stops an automatic guess replacing them
 };
@@ -531,7 +549,7 @@ const cfg = Object.assign({}, defaults);
 try {
   const s3 = localStorage.getItem('rallyeye.v3');
   if (s3) Object.assign(cfg, JSON.parse(s3));
-  else { const old = localStorage.getItem('rallyeye.v2') || localStorage.getItem('rallyeye.v1'); if (old) { const o = JSON.parse(old); for (const k of ['corners', 'cornersManual', 'view', 'mirror', 'sound', 'voice', 'showTrail']) if (k in o) cfg[k] = o[k]; } }
+  else { const old = localStorage.getItem('rallyeye.v2') || localStorage.getItem('rallyeye.v1'); if (old) { const o = JSON.parse(old); for (const k of ['corners', 'cornersManual', 'view', 'mirror', 'sound', 'voice', 'showTrail', 'installDismissed']) if (k in o) cfg[k] = o[k]; } }
 } catch (e) { /* storage unavailable */ }
 function save() { try { localStorage.setItem('rallyeye.v3', JSON.stringify(cfg)); } catch (e) { /* ignore */ } }
 
@@ -1427,13 +1445,22 @@ new MutationObserver(drawMap).observe(document.documentElement, { attributes: tr
 
 // ---------- Full-screen stage ----------
 let stage = false;
+// A phone browser keeps its address bar and toolbars over the page, so the window is not the space we get.
+// The visual viewport is what is actually visible, and everything on the stage is sized from it.
+function stageSize() {
+  const v = window.visualViewport;
+  return { w: Math.round(v ? v.width : window.innerWidth), h: Math.round(v ? v.height : window.innerHeight) };
+}
 function fitStage() {
-  const vp = $('viewport');
-  const portrait = window.innerHeight > window.innerWidth && window.innerWidth < 900;
+  const vp = $('viewport'), s = stageSize();
+  document.documentElement.style.setProperty('--stage-w', `${s.w}px`);
+  document.documentElement.style.setProperty('--stage-h', `${s.h}px`);
+  const portrait = s.h > s.w && s.w < 900;
   $('rotate').classList.toggle('on', stage && portrait);
+  $('install').classList.toggle('on', stage && showInstall && !portrait);
   if (!stage) { view.style.width = ''; view.style.height = ''; vp.style.aspectRatio = `${src.w} / ${src.h}`; return; }
-  vp.style.aspectRatio = 'auto'; // the stage fills the window; the canvas is letterboxed inside it
-  const k = Math.min(window.innerWidth / src.w, window.innerHeight / src.h);
+  vp.style.aspectRatio = 'auto'; // the stage fills the visible area; the canvas is letterboxed inside it
+  const k = Math.min(s.w / src.w, s.h / src.h);
   view.style.width = `${Math.floor(src.w * k)}px`; view.style.height = `${Math.floor(src.h * k)}px`;
 }
 const homes = new Map(); // where each moved element lives outside the stage
@@ -1445,7 +1472,9 @@ function enterStage() {
   moveTo($('toolbar'), $('rail')); $('rail').prepend($('toolbar'));
   moveTo($('feedback'), $('slotFb'));
   setDrawer(false); fitStage(); updateStats();
-  try { const el = document.documentElement; if (el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen().then(lockLandscape).catch(() => {}); else lockLandscape(); } catch (e) { /* not available */ }
+  const el = document.documentElement, req = el.requestFullscreen || el.webkitRequestFullscreen;
+  try { if (req && !document.fullscreenElement) req.call(el).then(lockLandscape).catch(() => { offerInstall(); }); else { lockLandscape(); if (!req) offerInstall(); } }
+  catch (e) { offerInstall(); }
 }
 function exitStage() {
   if (!stage) return; stage = false; document.body.classList.remove('stage');
@@ -1455,6 +1484,46 @@ function exitStage() {
 }
 // Phones open the camera in whatever way they are held; the table needs the long view, so ask for landscape
 function lockLandscape() { try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch (e) { /* desktop, or not permitted */ } }
+
+// Safari on iPhone never lets a page cover the screen, so the bars stay. Saved to the home screen it opens
+// with no browser interface at all, which is the only way to get the whole screen there.
+const iOS = /iP(hone|ad|od)/.test(navigator.platform || '') || (/Mac/.test(navigator.platform || '') && navigator.maxTouchPoints > 1) || /iPhone|iPad|iPod/.test(navigator.userAgent);
+function standalone() { return window.navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || (window.matchMedia && matchMedia('(display-mode: fullscreen)').matches); }
+let showInstall = false;
+function offerInstall() {
+  if (standalone() || cfg.installDismissed) return;
+  const steps = iOS
+    ? ['Tap the Share button in Safari, the square with an arrow.', 'Choose Add to Home Screen, then Add.', 'Open Rally Eye from your home screen. It runs with no address bar.']
+    : ['Open your browser menu.', 'Choose Install app, or Add to Home screen.', 'Open Rally Eye from your home screen for the whole display.'];
+  $('installSteps').innerHTML = ''; steps.forEach((t) => { const li = document.createElement('li'); li.textContent = t; $('installSteps').appendChild(li); });
+  showInstall = true; fitStage();
+}
+$('installDismiss').addEventListener('click', () => { showInstall = false; cfg.installDismissed = true; save(); fitStage(); });
+
+// Tags that only mean anything inside the document head, added here so a single published file still carries them
+(() => {
+  const head = document.head;
+  const meta = (name, content, attr) => { let m = head.querySelector(`meta[${attr || 'name'}="${name}"]`); if (!m) { m = document.createElement('meta'); m.setAttribute(attr || 'name', name); head.appendChild(m); } m.setAttribute('content', content); };
+  meta('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content');
+  meta('apple-mobile-web-app-capable', 'yes'); meta('mobile-web-app-capable', 'yes');
+  meta('apple-mobile-web-app-status-bar-style', 'black-translucent'); meta('apple-mobile-web-app-title', 'Rally Eye');
+  meta('theme-color', '#0D1218');
+  const icon = (() => { // a ball on the dark ground, drawn here so no extra file is needed
+    const c = document.createElement('canvas'); c.width = c.height = 192; const g = c.getContext('2d');
+    g.fillStyle = '#0D1218'; g.fillRect(0, 0, 192, 192);
+    g.fillStyle = '#FF8A2A'; g.beginPath(); g.arc(96, 96, 54, 0, Math.PI * 2); g.fill();
+    g.fillStyle = 'rgba(0,0,0,0.22)'; g.beginPath(); g.arc(112, 112, 40, 0, Math.PI * 2); g.fill();
+    try { return c.toDataURL('image/png'); } catch (e) { return null; }
+  })();
+  if (icon) { const l = document.createElement('link'); l.rel = 'apple-touch-icon'; l.href = icon; head.appendChild(l); }
+  try {
+    const m = { name: 'Rally Eye', short_name: 'Rally Eye', display: 'standalone', orientation: 'landscape', background_color: '#0D1218', theme_color: '#0D1218', start_url: location.href.split('#')[0] + '#stage' };
+    if (icon) m.icons = [{ src: icon, sizes: '192x192', type: 'image/png', purpose: 'any' }];
+    const l = document.createElement('link'); l.rel = 'manifest';
+    l.href = URL.createObjectURL(new Blob([JSON.stringify(m)], { type: 'application/manifest+json' }));
+    head.appendChild(l);
+  } catch (e) { /* a manifest is a nicety, not a requirement */ }
+})();
 $('btnStage').addEventListener('click', enterStage);
 $('hudExit').addEventListener('click', exitStage);
 $('hudSettings').addEventListener('click', () => setDrawer(!$('rail').classList.contains('open')));
@@ -1467,6 +1536,7 @@ $('btnPopout').addEventListener('click', () => {
   if (!w) setFeedback('Pop-up blocked', 'Allow pop-ups for this site, or use Full screen instead.', 'warn');
 });
 window.addEventListener('resize', fitStage);
+if (window.visualViewport) { visualViewport.addEventListener('resize', fitStage); visualViewport.addEventListener('scroll', fitStage); }
 document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && stage && !$('rail').classList.contains('open')) exitStage(); });
 try { if (screen.orientation) screen.orientation.addEventListener('change', () => setTimeout(fitStage, 150)); } catch (e) { /* older browsers */ }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && stage) { if ($('rail').classList.contains('open')) setDrawer(false); else if (mode === 'none') exitStage(); } });

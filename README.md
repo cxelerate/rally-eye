@@ -18,6 +18,14 @@ The page must be open in its own tab. Browsers do not pass camera permission int
 
 A demo feed runs through the same tracker while the camera is off, so the page shows what it does before you set anything up.
 
+## On a phone
+
+Safari on iPhone never lets a web page cover the screen, so the address bar and toolbars stay over it. The app
+sizes itself to whatever the browser actually leaves visible, so nothing is hidden behind the bars, and it
+tells you the one way to get the whole screen: add it to the home screen (Share, then Add to Home Screen) and
+open it from there. It then runs with no browser interface at all. Hold the phone sideways; the table needs
+the long view.
+
 ## Setup that works best
 
 1. Put the laptop at the side of the table, roughly level with the net, with the whole table in frame. Bounces and hits read best from the side.

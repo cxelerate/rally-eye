@@ -6,6 +6,9 @@ code path the browser uses on a webcam is exercised end to end.
 - `layout.js` — at six window sizes and three states, asserts the scoreboard,
   buttons, hint and feedback strip are present, never overlap each other, stay
   on screen, and that the video is centred and fits.
+- `mobile.js` — pretends to be Safari on an iPhone, with no Fullscreen API and browser bars covering part of
+  the window, and checks the app fills exactly the space left, keeps the picture and controls clear of the
+  bars, carries the home-screen tags, and offers the add-to-home-screen route only when it is needed.
 - `e2e.js` — cold start, opening the camera, automatic table finding, bounce
   accuracy against the clip's known bounce points, tapping the four corners,
   every slider, switch and menu, settings persistence, presets, sampling the
@@ -18,4 +21,5 @@ Both need a synthetic clip. Generate one with a short script that writes a
 ```
 node test/layout.js
 node test/e2e.js
+node test/mobile.js
 ```
