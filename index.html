@@ -412,8 +412,8 @@
       <div class="group-body">
         <div class="row"><span>Processing width</span>
           <select id="procW" aria-label="Processing width"><option value="240">240 px, fastest</option><option value="320">320 px</option><option value="480" selected>480 px</option><option value="640">640 px, most precise</option></select></div>
-        <div class="range"><div class="row"><span>Motion threshold</span><span class="val" id="vMotion">28</span></div>
-          <input type="range" id="motionThr" min="5" max="80" step="1" value="28" aria-label="Motion threshold"></div>
+        <div class="range"><div class="row"><span>Motion threshold</span><span class="val" id="vMotion">22</span></div>
+          <input type="range" id="motionThr" min="5" max="80" step="1" value="22" aria-label="Motion threshold"></div>
         <label class="check"><input type="checkbox" id="showMask"> Show what the tracker sees (colour mask)</label>
         <label class="check"><input type="checkbox" id="showTrail" checked> Draw the ball trail</label>
         <div class="actions"><button class="btn" type="button" id="btnSnapshot">Save a snapshot of what the camera sees</button></div>
@@ -459,7 +459,7 @@ const BALL_R = 0.02;      // metres, a regulation 40 mm ball
 // ---------- Settings (persisted) ----------
 const defaults = {
   preset: 'white', hueMin: 0, hueMax: 360, satMin: 0, satMax: 22, valMin: 75,
-  radMin: 1, radMax: 14, motionGate: true, motionThr: 28, sizeAuto: true, zoneOn: true, zoneH: 0.8, returnWin: 3,
+  radMin: 1, radMax: 14, motionGate: true, motionThr: 22, sizeAuto: true, zoneOn: true, zoneH: 0.8, returnWin: 3,
   tableColor: 'blue', tHueMin: 195, tHueMax: 250, tSatMin: 30, tValMin: 15,
   view: 'side', mirror: false, procW: 480, showMask: false, showTrail: true, sound: true, voice: false,
   corners: null // four {x, y} pairs, normalised 0..1 in frame coordinates: top-left, top-right, bottom-right, bottom-left
@@ -571,7 +571,7 @@ const demo = (() => {
     const onTable = ball.x >= 0 && ball.x <= TABLE_L && ball.y >= 0 && ball.y <= TABLE_W;
     if (ball.z <= BR && onTable && ball.vz < 0) { ball.z = BR; ball.vz = -ball.vz * 0.86; st.bounces.push({ x: ball.x, y: ball.y, t: now, out: false }); }
     if (ball.z <= BR - 0.22 && ball.vz < 0) { ball.z = BR - 0.22; ball.vz = -ball.vz * 0.4; if (st.vanishIn <= 0) { st.bounces.push({ x: ball.x, y: ball.y, t: now, out: true }); st.floorOut++; st.vanishIn = 0.5; } }
-    if (st.vanishIn > 0) { st.vanishIn -= dt; if (st.vanishIn <= 0) { st.pause = 1.2; st.serveFrom = ball.x < TABLE_L / 2 ? 'A' : 'B'; } }
+    if (st.vanishIn > 0) { st.vanishIn -= dt; if (st.vanishIn <= 0) { st.pause = 3.5; st.serveFrom = ball.x < TABLE_L / 2 ? 'A' : 'B'; } }
     // paddles return the ball just past each end; every so often a wild return sails long and lands on the floor
     const reach = st.deep ? 1.1 : 0.3; // a deep return is struck over a metre behind the end line, outside the play zone
     const past = ball.x < -reach && ball.vx < 0 || ball.x > TABLE_L + reach && ball.vx > 0;
@@ -628,23 +628,24 @@ const view = $('view'), vctx = view.getContext('2d');
 const pc = document.createElement('canvas'); const pctx = pc.getContext('2d', { willReadFrequently: true });
 const maskCanvas = document.createElement('canvas'); const mctx = maskCanvas.getContext('2d');
 let procW = 320, procH = 180, N = 0;
-let mask, maskShow, gray, prevGray, curGray, stack, staticCount, havePrev = false, lastData = null;
+let mask, maskShow, gray, prevGray, curGray, stack, staticCount, bg, noise, tmpA, tmpB, havePrev = false, haveBg = false, lastData = null;
 function resizeForSource() {
   procW = Number(cfg.procW) || 320; procH = Math.max(8, Math.round(procW * src.h / src.w)); N = procW * procH;
   pc.width = procW; pc.height = procH; maskCanvas.width = procW; maskCanvas.height = procH;
-  mask = new Uint8Array(N); maskShow = new Uint8Array(N); gray = new Uint8Array(N); prevGray = new Uint8Array(N); stack = new Int32Array(N); staticCount = new Uint8Array(N); havePrev = false;
-  cand.n = 0;
+  mask = new Uint8Array(N); maskShow = new Uint8Array(N); gray = new Uint8Array(N); prevGray = new Uint8Array(N); stack = new Int32Array(N); staticCount = new Uint8Array(N);
+  bg = new Uint8Array(N); noise = new Uint8Array(N); tmpA = new Uint8Array(N); tmpB = new Uint8Array(N); havePrev = false; haveBg = false;
+  cand.n = 0; cand.hist.length = 0;
   view.width = src.w; view.height = src.h; $('viewport').style.aspectRatio = `${src.w} / ${src.h}`;
   track.pts.length = 0; track.active = false; markers.length = 0; updateZone(); if (typeof fitStage === 'function') fitStage();
 }
 
 // ---------- Tracking state ----------
 const track = { pts: [], vx: 0, vy: 0, active: false, lost: 0, lastSeen: 0, speedPx: 0, kmh: null, kmhSmooth: null, r: 0, sawBounce: false, lastOutT: -1e9 };
-const cand = { x: 0, y: 0, vx: 0, vy: 0, t: 0, n: 0, r: 0, x0: 0, y0: 0 }; // a tentative ball: promoted after three coherent, moving frames
+const cand = { x: 0, y: 0, vx: 0, vy: 0, t: 0, n: 0, r: 0, hist: [] }; // a tentative ball: promoted after four frames on a smooth path at ball speed
 const pend = { active: false, t: 0, side: 'A', dir: 0, where: '' }; // the ball left the table and may still be returned
 let candAvg = 0, hintMode = '';
 const ev = { yDir: 0, yRun: 0, low: null, pendBounce: null, queued: null, xDir: 0, xRun: 0, pendHit: null, lastBounceT: -1e9, lastHitT: -1e9 };
-const stats = { bounceA: 0, bounceB: 0, out: 0, best: 0, top: null, bounces: [], frames: 0, returns: 0 };
+const stats = { bounceA: 0, bounceB: 0, out: 0, best: 0, top: null, bounces: [], frames: 0, returns: 0, tracks: 0, log: [] };
 const rally = { hits: 0, hitsSince: 0, lastBounceSide: null };
 const markers = []; // transient rings drawn on the video
 let fps = 0, lastFrameT = 0;
@@ -701,6 +702,19 @@ function findBlobs(m, w, h, minArea, maxArea) {
   return blobs;
 }
 
+// Four consecutive sightings form a ball's path only if each step is at ball speed, keeps its heading within
+// sixty degrees, and does not change length by more than a factor of two and a half. Noise never manages that.
+function smoothPath(hist, mpp) {
+  if (hist.length < 4) return false;
+  const h = hist.slice(-4), vMin = mpp ? 0.8 / mpp : 40; // 0.8 m/s in pixels per second
+  const d = [];
+  for (let i = 1; i < 4; i++) { const dt = Math.max(1e-3, (h[i].t - h[i - 1].t) / 1000); const dx = h[i].x - h[i - 1].x, dy = h[i].y - h[i - 1].y; const len = Math.hypot(dx, dy); if (len / dt < vMin) return false; d.push({ dx, dy, len }); }
+  for (let i = 1; i < 3; i++) {
+    const cos = (d[i].dx * d[i - 1].dx + d[i].dy * d[i - 1].dy) / (d[i].len * d[i - 1].len || 1); if (cos < 0.5) return false;
+    const ratio = d[i].len / (d[i - 1].len || 1); if (ratio < 0.4 || ratio > 2.5) return false;
+  }
+  return true;
+}
 // Ball-like: compact and roughly round. Motion blur stretches a fast ball, so some elongation is allowed.
 function shapeOk(b) {
   const aspect = b.w / b.h; if (aspect < 0.45 || aspect > 2.2) return false;
@@ -755,19 +769,41 @@ function processFrame(now) {
 
   segment(d, { mask, gray }, cfg.hueMin, cfg.hueMax, cfg.satMin, cfg.satMax, cfg.valMin, true);
   const last = track.pts.length ? track.pts[track.pts.length - 1] : null;
+
+  // Without the table there is no scale and no play zone, so nothing is tracked rather than guessed
+  if (!table.H && cfg.zoneOn) {
+    curGray = gray; const t0 = prevGray; prevGray = gray; gray = t0; havePrev = true; haveBg = false;
+    if (cfg.showMask) maskShow.set(mask);
+    if (track.active) { track.active = false; cand.n = 0; cand.hist.length = 0; resetEvents(); }
+    if (src.kind === 'camera' && hintMode !== 'notable') { hintMode = 'notable'; setFeedback('Set the table to start', 'Tracking begins once the table is known, so nothing else in the room gets picked up. Tap Set table, or tap the four corners.', 'warn', true); }
+    stats.frames++; draw(now); if ((stats.frames & 3) === 0) updateStats(); return;
+  }
+
   // Anything that has looked like the ball on the same pixels for over a second is furniture, not a ball
   const staticFrames = Math.max(20, Math.min(120, Math.round((fps || 30) * 1.2)));
   for (let i = 0; i < N; i++) { if (mask[i]) { if (staticCount[i] < 255) staticCount[i]++; if (staticCount[i] > staticFrames) mask[i] = 0; } else staticCount[i] = 0; }
-  if (cfg.motionGate && havePrev) {
-    const thr = cfg.motionThr, keepR2 = Math.pow(cfg.radMax * 2, 2);
+
+  // Motion against a slowly adapting background, with a per-pixel noise floor so sensor grain never counts as movement
+  if (!haveBg) { bg.set(gray); noise.fill(3); haveBg = true; }
+  else {
+    const thr = cfg.motionThr, keepR2 = Math.pow(cfg.radMax * 1.5, 2), gate = cfg.motionGate;
     for (let i = 0; i < N; i++) {
-      if (!mask[i]) continue;
-      if (Math.abs(gray[i] - prevGray[i]) >= thr) continue;
+      const g0 = gray[i], b0 = bg[i];
+      if (havePrev) noise[i] = (noise[i] * 7 + Math.abs(g0 - prevGray[i])) >> 3;
+      const dbg = g0 > b0 ? g0 - b0 : b0 - g0;
+      bg[i] = b0 + ((g0 - b0) >> 4);
+      if (!gate || !mask[i]) continue;
+      if (dbg > thr && dbg > noise[i] * 4) continue;
       if (last && track.lost < 8) { const x = i % procW, y = (i - x) / procW; if ((x - last.x) ** 2 + (y - last.y) ** 2 <= keepR2) continue; }
       mask[i] = 0;
     }
   }
   curGray = gray; const t = prevGray; prevGray = gray; gray = t; havePrev = true;
+
+  // Opening removes speckles and slivers, unless the ball is so small it would not survive
+  const centre = table.H ? toFrame(TABLE_L / 2, TABLE_W / 2) : null;
+  const rMid = centre ? BALL_R / (mppAt(centre.x, centre.y) || 1) : 3;
+  if (rMid >= 2.5) { boxMin(mask, tmpA, procW, procH, 1, tmpB); boxMax(tmpA, mask, procW, procH, 1, tmpB); }
   if (cfg.showMask) maskShow.set(mask);
 
   const minArea = Math.max(3, Math.PI * cfg.radMin * cfg.radMin * 0.6), maxArea = Math.PI * cfg.radMax * cfg.radMax * 1.6;
@@ -783,19 +819,29 @@ function processFrame(now) {
     if (b) updateTrack(b.cx, b.cy, now, b);
     else {
       track.lost++;
-      if (track.lost > 12) { track.active = false; cand.n = 0; resetEvents(); track.kmhSmooth = null; hintMode = ''; ballLost(last); }
+      if (track.lost > 12) { track.active = false; cand.n = 0; cand.hist.length = 0; resetEvents(); track.kmhSmooth = null; hintMode = ''; ballLost(last); }
       if (rally.hits > 0 && now - last.t > 2000) endRally('the ball left the frame');
     }
   } else {
-    // Tentative: a new ball must be seen on three consecutive frames along a plausible path before it counts
+    // Tentative: a new ball must hold a smooth path at ball speed for four consecutive frames before it counts
+    const mppC = table.H ? mppAt(cand.n ? cand.x / procW : 0.5, cand.n ? cand.y / procH : 0.5) : 0;
+    const acqR = Math.max(procW * 0.06, mppC ? (12 / Math.max(15, fps || 30)) / mppC : procW * 0.1); // a 12 m/s ball's travel in one frame
     let b = null;
-    if (cand.n) { const dt = Math.min(0.25, (now - cand.t) / 1000); b = pickBall(blobs, { x: cand.x + cand.vx * dt, y: cand.y + cand.vy * dt }, procW * 0.08 + Math.hypot(cand.vx, cand.vy) * dt * 1.5, cand.r); }
+    if (cand.n) {
+      const dt = Math.min(0.25, (now - cand.t) / 1000);
+      const r = cand.n >= 2 ? Math.max(acqR * 0.4, Math.hypot(cand.vx, cand.vy) * dt * 1.2 + 4) : acqR;
+      b = pickBall(blobs, { x: cand.x + cand.vx * dt, y: cand.y + cand.vy * dt }, r, cand.r);
+    }
     if (b) { const dt = (now - cand.t) / 1000; if (dt > 0) { cand.vx = (b.cx - cand.x) / dt; cand.vy = (b.cy - cand.y) / dt; } cand.n++; }
-    else { b = pickBall(blobs, null, 0, 0); cand.n = b ? 1 : 0; cand.vx = 0; cand.vy = 0; }
-    if (b) { if (cand.n === 1) { cand.x0 = b.cx; cand.y0 = b.cy; } cand.x = b.cx; cand.y = b.cy; cand.t = now; cand.r = Math.min(b.w, b.h) / 2; }
-    if (cand.n >= 3 && Math.hypot(cand.x - cand.x0, cand.y - cand.y0) >= 2) {
+    else { b = pickBall(blobs, null, 0, 0); cand.n = b ? 1 : 0; cand.vx = 0; cand.vy = 0; cand.hist.length = 0; }
+    if (b) { cand.x = b.cx; cand.y = b.cy; cand.t = now; cand.r = Math.min(b.w, b.h) / 2; cand.hist.push({ x: b.cx, y: b.cy, t: now }); if (cand.hist.length > 6) cand.hist.shift(); }
+    if (cand.n >= 4 && smoothPath(cand.hist, mppC)) {
       const returned = pend.active && isReturn(b, cand);
-      track.lost = 99; track.pts.length = 0; track.sawBounce = false; updateTrack(b.cx, b.cy, now, b);
+      track.pts.length = 0; for (const h of cand.hist.slice(-3, -1)) track.pts.push({ x: h.x, y: h.y, t: h.t, r: cand.r, hh: cand.r });
+      track.lost = 0; track.sawBounce = false; track.vx = cand.vx; track.vy = cand.vy; track.r = cand.r; resetEvents(); stats.tracks++;
+      stats.log.push({ t: Math.round(now), x: Math.round(b.cx), y: Math.round(b.cy), r: +cand.r.toFixed(1), area: b.area, vx: Math.round(cand.vx), vy: Math.round(cand.vy), mps: +(Math.hypot(cand.vx, cand.vy) * (mppC || 0)).toFixed(2) }); if (stats.log.length > 40) stats.log.shift();
+      updateTrack(b.cx, b.cy, now, b); cand.n = 0; cand.hist.length = 0;
+      hintMode = ''; setFeedback('Tracking the ball', 'Speed and bounces are live.', 'good', true);
       if (pend.active) { if (returned) ballReturned(); else callOut(pend.where, 'a new ball came into play'); }
     }
     if (pend.active && now - pend.t > cfg.returnWin * 1000) callOut(pend.where, `no return within ${cfg.returnWin} s`);
@@ -821,7 +867,7 @@ function updateTrack(x, y, now, blob) {
   if (prev && track.lost < 8) {
     const dt = (now - prev.t) / 1000;
     if (dt > 0) { const nvx = (x - prev.x) / dt, nvy = (y - prev.y) / dt; track.vx = track.active ? track.vx * 0.35 + nvx * 0.65 : nvx; track.vy = track.active ? track.vy * 0.35 + nvy * 0.65 : nvy; }
-  } else { track.vx = 0; track.vy = 0; resetEvents(); if (!track.active) { hintMode = ''; setFeedback('Tracking the ball', table.H ? 'Speed and bounces are live.' : 'Set the table to judge in or out and read speeds in km/h.', 'good', true); } }
+  } else { track.vx = 0; track.vy = 0; resetEvents(); }
   const wasLost = track.lost >= 8;
   track.lost = 0; track.active = true; track.lastSeen = now; track.speedPx = Math.hypot(track.vx, track.vy);
   pts.push(p); if (pts.length > 24) pts.shift();
@@ -933,13 +979,13 @@ function endRally(reason, keepMessage) {
 
 // ---------- Table finder ----------
 const tmaskOut = { mask: null, gray: null };
-function boxMax(a, out, w, h, r) { // separable dilation
-  const t = new Uint8Array(a.length);
+function boxMax(a, out, w, h, r, scratch) { // separable dilation
+  const t = scratch || new Uint8Array(a.length);
   for (let y = 0; y < h; y++) { const row = y * w; for (let x = 0; x < w; x++) { let v = 0; for (let k = Math.max(0, x - r), e = Math.min(w - 1, x + r); k <= e; k++) if (a[row + k]) { v = 1; break; } t[row + x] = v; } }
   for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) { let v = 0; for (let k = Math.max(0, y - r), e = Math.min(h - 1, y + r); k <= e; k++) if (t[k * w + x]) { v = 1; break; } out[y * w + x] = v; }
 }
-function boxMin(a, out, w, h, r) { // separable erosion
-  const t = new Uint8Array(a.length);
+function boxMin(a, out, w, h, r, scratch) { // separable erosion
+  const t = scratch || new Uint8Array(a.length);
   for (let y = 0; y < h; y++) { const row = y * w; for (let x = 0; x < w; x++) { let v = 1; for (let k = Math.max(0, x - r), e = Math.min(w - 1, x + r); k <= e; k++) if (!a[row + k]) { v = 0; break; } t[row + x] = v; } }
   for (let x = 0; x < w; x++) for (let y = 0; y < h; y++) { let v = 1; for (let k = Math.max(0, y - r), e = Math.min(h - 1, y + r); k <= e; k++) if (!t[k * w + x]) { v = 0; break; } out[y * w + x] = v; }
 }
@@ -1117,11 +1163,12 @@ async function startCamera(deviceId) {
   setFeedback('Set the table', 'Tap Set table, then Find table automatically or tap its four corners. Only a moving ball over the table is tracked.', 'none', true);
   enterStage();
   const trackEl = stream.getVideoTracks()[0]; if (trackEl) trackEl.addEventListener('ended', () => { if (src.kind === 'camera') stopCamera(); });
+  setTimeout(() => { if (src.kind === 'camera' && !table.H) wantTableDetect = true; }, 1500);
   listDevices(); schedule();
 }
 function stopStream() { if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; } video.srcObject = null; }
 function stopCamera() {
-  stopStream(); setSource('demo'); demo.reset(7); resetEvents();
+  stopStream(); setSource('demo'); demo.reset(7); resetEvents(); setTimeout(() => { if (src.kind === 'demo' && !table.H) wantTableDetect = true; }, 500);
   setStatus('demo', 'Demo feed'); $('btnStart').textContent = 'Start camera'; $('hudStart').textContent = 'Start camera'; $('btnDemo').setAttribute('aria-pressed', 'true');
   setFeedback('Demo feed', 'The camera is off. The demo runs through the same tracker.', 'none', true); schedule();
 }
@@ -1309,6 +1356,7 @@ $('btnOpenTop').addEventListener('click', () => {
 });
 if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) listDevices();
 syncControls(); setSource('demo'); demo.reset(7); rebuildTable(); updateStats(); schedule();
+setTimeout(() => { if (src.kind === 'demo' && !table.H) wantTableDetect = true; }, 500);
 if (location.hash === '#stage') { enterStage(); if (!inIframe) startCamera(''); }
 window.RallyEye = { cfg, stats, track, rally, table, demo, resetStats, standaloneHtml, get proc() { return { w: procW, h: procH }; }, get src() { return src; } };
 })();
