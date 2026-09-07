@@ -654,7 +654,7 @@ let wantTableDetect = false;
 function resetEvents() { ev.yDir = 0; ev.yRun = 0; ev.low = null; ev.pendBounce = null; ev.queued = null; ev.xDir = 0; ev.xRun = 0; ev.pendHit = null; }
 function resetStats() {
   stats.bounceA = 0; stats.bounceB = 0; stats.out = 0; stats.best = 0; stats.top = null; stats.bounces.length = 0;
-  rally.hits = 0; rally.hitsSince = 0; rally.lastBounceSide = null; markers.length = 0; pend.active = false; stats.returns = 0; resetEvents(); updateStats(); drawMap();
+  rally.hits = 0; rally.hitsSince = 0; rally.lastBounceSide = null; markers.length = 0; pend.active = false; stats.returns = 0; stats.tracks = 0; stats.log.length = 0; resetEvents(); updateStats(); drawMap();
 }
 
 // ---------- Per-frame colour segmentation ----------
