@@ -65,6 +65,7 @@
   }
 
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0;
     background: var(--bg);
@@ -230,6 +231,38 @@
   .tips b { color: var(--text); font-weight: 500; }
   .foot { color: var(--muted); font-size: 12px; padding: 0 16px 24px; max-width: 1440px; margin: 0 auto; }
 
+  /* Full-screen stage: the video fills the window, the scoreboard and feedback float over it, settings slide in from the right */
+  .hud { position: absolute; z-index: 5; display: none; gap: 8px; }
+  .hud-tl { top: 12px; left: 12px; flex-wrap: wrap; align-items: stretch; }
+  .hud-tr { top: 12px; right: 12px; flex-wrap: wrap; justify-content: flex-end; }
+  .hud .btn { background: rgba(13, 18, 24, 0.72); color: #F4F7FA; border-color: rgba(255, 255, 255, 0.18); backdrop-filter: blur(6px); min-height: 40px; }
+  .hud .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .chip { background: rgba(13, 18, 24, 0.72); color: #F4F7FA; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 8px; padding: 6px 12px; min-width: 76px; backdrop-filter: blur(6px); }
+  .chip .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(244, 247, 250, 0.7); white-space: nowrap; }
+  .chip .v { font-family: var(--font-display); font-size: 26px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+  .chip .v small { font-family: var(--font-body); font-size: 11px; font-weight: 400; margin-left: 4px; color: rgba(244, 247, 250, 0.7); }
+  body.stage { overflow: hidden; }
+  body.stage .top, body.stage .foot { display: none; }
+  body.stage .viewport { position: fixed; inset: 0; z-index: 20; border: 0; border-radius: 0; aspect-ratio: auto; display: grid; place-items: center; background: #000; }
+  body.stage .viewport canvas { width: auto; height: auto; }
+  body.stage .hud { display: flex; }
+  body.stage .hint { top: 12px; left: 50%; right: auto; transform: translateX(-50%); width: min(640px, calc(100vw - 24px)); z-index: 6; }
+  body.stage .feedback {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 30;
+    width: min(760px, calc(100vw - 24px)); background: rgba(13, 18, 24, 0.78); color: #F4F7FA; border-color: rgba(255, 255, 255, 0.14); backdrop-filter: blur(8px);
+  }
+  body.stage .feedback .fb-sub, body.stage .feedback .cap { color: rgba(244, 247, 250, 0.72); }
+  body.stage .rail {
+    position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: min(400px, 100vw); overflow: auto; padding: 12px;
+    background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow);
+    transform: translateX(100%); transition: transform 0.2s ease;
+  }
+  body.stage .rail.open { transform: translateX(0); }
+  body.stage .drawer-head { display: flex; }
+  .drawer-head { display: none; justify-content: space-between; align-items: center; }
+  .drawer-head b { font-family: var(--font-display); font-size: 18px; text-transform: uppercase; letter-spacing: 0.06em; }
+  body.stage .toolbar { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; }
+  @media (prefers-reduced-motion: reduce) { body.stage .rail { transition: none; } }
   @media (prefers-reduced-motion: no-preference) {
     .pill[data-state="starting"]::before { animation: blink 1s infinite; }
     @keyframes blink { 50% { opacity: 0.3; } }
@@ -267,14 +300,29 @@
         <span id="hintText"></span>
         <button class="btn small" id="hintCancel" type="button">Cancel</button>
       </div>
+      <div class="hud hud-tl" aria-label="Scoreboard">
+        <div class="chip"><div class="k">Speed</div><div class="v" id="hSpeed">—<small id="hSpeedU">km/h</small></div></div>
+        <div class="chip"><div class="k">Rally</div><div class="v" id="hRally">0</div></div>
+        <div class="chip"><div class="k" id="hLblA">Left</div><div class="v" id="hA">0</div></div>
+        <div class="chip"><div class="k" id="hLblB">Right</div><div class="v" id="hB">0</div></div>
+        <div class="chip"><div class="k">Out</div><div class="v" id="hOut">0</div></div>
+      </div>
+      <div class="hud hud-tr">
+        <button class="btn primary" type="button" id="hudStart">Start camera</button>
+        <button class="btn" type="button" id="hudTable">Set table</button>
+        <button class="btn" type="button" id="hudSettings">Settings</button>
+        <button class="btn" type="button" id="hudExit">Exit full screen</button>
+      </div>
     </div>
 
-    <div class="toolbar">
+    <div class="toolbar" id="toolbar">
       <button class="btn primary" id="btnStart" type="button">Start camera</button>
       <select id="camSel" aria-label="Camera"><option value="">Default camera</option></select>
       <button class="btn" id="btnMirror" type="button" aria-pressed="false">Mirror</button>
       <button class="btn" id="btnDemo" type="button" aria-pressed="true">Demo feed</button>
       <button class="btn" id="btnReset" type="button">Reset stats</button>
+      <button class="btn" id="btnStage" type="button">Full screen</button>
+      <button class="btn" id="btnPopout" type="button">Pop out</button>
     </div>
 
     <div class="feedback" id="feedback" data-level="none" aria-live="polite">
@@ -290,7 +338,8 @@
     </div>
   </section>
 
-  <aside class="rail" aria-label="Stats and settings">
+  <aside class="rail" id="rail" aria-label="Stats and settings">
+    <div class="drawer-head"><b>Settings</b><button class="btn small" type="button" id="drawerClose">Close</button></div>
     <div class="tiles">
       <div class="tile"><div class="label">Ball speed</div><div class="value" id="tSpeed">—</div><div class="unit" id="tSpeedUnit">km/h, estimated</div></div>
       <div class="tile"><div class="label">Top speed</div><div class="value" id="tTop">—</div><div class="unit" id="tTopUnit">km/h, approx.</div></div>
@@ -580,7 +629,7 @@ function resizeForSource() {
   mask = new Uint8Array(N); maskShow = new Uint8Array(N); gray = new Uint8Array(N); prevGray = new Uint8Array(N); stack = new Int32Array(N); staticCount = new Uint8Array(N); havePrev = false;
   cand.n = 0;
   view.width = src.w; view.height = src.h; $('viewport').style.aspectRatio = `${src.w} / ${src.h}`;
-  track.pts.length = 0; track.active = false; markers.length = 0; updateZone();
+  track.pts.length = 0; track.active = false; markers.length = 0; updateZone(); if (typeof fitStage === 'function') fitStage();
 }
 
 // ---------- Tracking state ----------
@@ -974,6 +1023,11 @@ function updateStats() {
   $('fbRally').textContent = String(rally.hits);
   $('lblA').textContent = `${sideShort('A')} bounces`; $('lblB').textContent = `${sideShort('B')} bounces`;
   $('fps').textContent = `${Math.round(fps)} fps · ${procW}×${procH}`;
+  if (stage) {
+    $('hSpeed').firstChild.textContent = $('tSpeed').textContent; $('hSpeedU').textContent = real ? 'km/h' : 'px/s';
+    $('hRally').textContent = String(rally.hits); $('hA').textContent = String(stats.bounceA); $('hB').textContent = String(stats.bounceB); $('hOut').textContent = String(stats.out);
+    $('hLblA').textContent = sideShort('A'); $('hLblB').textContent = sideShort('B');
+  }
 }
 function updateTableUI() {
   $('tableSub').textContent = table.H ? `Set · ${cfg.view === 'end' ? 'end' : 'side'} view` : 'Not set';
@@ -1028,15 +1082,16 @@ async function startCamera(deviceId) {
   if (!video.videoWidth) { stopStream(); setStatus('error', 'No video'); setFeedback('Camera gave no video', 'The camera opened but sent no frames. Try another camera from the list.', 'bad', true); return; }
   setSource('camera'); resetEvents();
   setStatus('live', `Live · ${video.videoWidth}×${video.videoHeight}`);
-  $('btnStart').textContent = 'Stop camera'; $('btnDemo').setAttribute('aria-pressed', 'false');
-  setFeedback('Searching for the ball', 'Hold the ball up to the camera to check it is picked up. Then set the table.', 'none', true);
+  $('btnStart').textContent = 'Stop camera'; $('hudStart').textContent = 'Stop camera'; $('btnDemo').setAttribute('aria-pressed', 'false');
+  setFeedback('Set the table', 'Tap Set table, then Find table automatically or tap its four corners. Only a moving ball over the table is tracked.', 'none', true);
+  enterStage();
   const trackEl = stream.getVideoTracks()[0]; if (trackEl) trackEl.addEventListener('ended', () => { if (src.kind === 'camera') stopCamera(); });
   listDevices(); schedule();
 }
 function stopStream() { if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; } video.srcObject = null; }
 function stopCamera() {
   stopStream(); setSource('demo'); demo.reset(7); resetEvents();
-  setStatus('demo', 'Demo feed'); $('btnStart').textContent = 'Start camera'; $('btnDemo').setAttribute('aria-pressed', 'true');
+  setStatus('demo', 'Demo feed'); $('btnStart').textContent = 'Start camera'; $('hudStart').textContent = 'Start camera'; $('btnDemo').setAttribute('aria-pressed', 'true');
   setFeedback('Demo feed', 'The camera is off. The demo runs through the same tracker.', 'none', true); schedule();
 }
 async function listDevices() {
@@ -1146,6 +1201,37 @@ document.addEventListener('pointerdown', ensureAudio);
 try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', drawMap); } catch (e) { /* older browsers */ }
 new MutationObserver(drawMap).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
+// ---------- Full-screen stage ----------
+let stage = false;
+function fitStage() {
+  if (!stage) { view.style.width = ''; view.style.height = ''; return; }
+  const k = Math.min(window.innerWidth / src.w, window.innerHeight / src.h);
+  view.style.width = `${Math.floor(src.w * k)}px`; view.style.height = `${Math.floor(src.h * k)}px`;
+}
+function enterStage() {
+  if (stage) return; stage = true; document.body.classList.add('stage');
+  $('rail').prepend($('toolbar')); $('rail').classList.remove('open'); fitStage(); updateStats();
+  try { const el = document.documentElement; if (el.requestFullscreen && !document.fullscreenElement) el.requestFullscreen().catch(() => {}); } catch (e) { /* not available */ }
+}
+function exitStage() {
+  if (!stage) return; stage = false; document.body.classList.remove('stage');
+  $('rail').classList.remove('open'); document.querySelector('.stage').insertBefore($('toolbar'), $('feedback')); fitStage();
+  try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {}); } catch (e) { /* ignore */ }
+}
+$('btnStage').addEventListener('click', enterStage);
+$('hudExit').addEventListener('click', exitStage);
+$('hudSettings').addEventListener('click', () => $('rail').classList.toggle('open'));
+$('drawerClose').addEventListener('click', () => $('rail').classList.remove('open'));
+$('hudTable').addEventListener('click', () => { $('rail').classList.remove('open'); if (table.H) { setMode('corners'); } else { wantTableDetect = true; setTimeout(() => { if (!table.H) setMode('corners'); }, 400); } });
+$('hudStart').addEventListener('click', () => $('btnStart').click());
+$('btnPopout').addEventListener('click', () => {
+  let w = null; try { w = window.open(location.href.split('#')[0] + '#stage', 'rallyeye', 'popup,width=1280,height=760'); } catch (e) { w = null; }
+  if (!w) setFeedback('Pop-up blocked', 'Allow pop-ups for this site, or use Full screen instead.', 'warn');
+});
+window.addEventListener('resize', fitStage);
+document.addEventListener('fullscreenchange', () => { if (!document.fullscreenElement && stage && !$('rail').classList.contains('open')) exitStage(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && stage) { if ($('rail').classList.contains('open')) $('rail').classList.remove('open'); else if (mode === 'none') exitStage(); } });
+
 // ---------- Start ----------
 // Inside another page (the Claude panel, for instance) the camera is usually blocked by the embedding page's permissions
 // policy, and the frame cannot open new tabs. Offer the page itself as a file to open directly.
@@ -1164,6 +1250,8 @@ function standaloneHtml() {
   root.removeAttribute('data-theme');
   root.querySelectorAll('script').forEach((el) => { if (el.id !== 'app') el.remove(); });
   root.querySelectorAll('canvas').forEach((el) => { el.removeAttribute('style'); });
+  const body = root.querySelector('body'); if (body) body.classList.remove('stage');
+  const rail = root.querySelector('#rail'); if (rail) rail.classList.remove('open');
   const notice = root.querySelector('#frameNotice'); if (notice) notice.hidden = true;
   return '<!doctype html>\n' + root.outerHTML;
 }
@@ -1185,6 +1273,7 @@ $('btnOpenTop').addEventListener('click', () => {
 });
 if (navigator.mediaDevices && navigator.mediaDevices.enumerateDevices) listDevices();
 syncControls(); setSource('demo'); demo.reset(7); rebuildTable(); updateStats(); schedule();
+if (location.hash === '#stage') { enterStage(); if (!inIframe) startCamera(''); }
 window.RallyEye = { cfg, stats, track, rally, table, demo, resetStats, standaloneHtml, get proc() { return { w: procW, h: procH }; }, get src() { return src; } };
 })();
 </script>
