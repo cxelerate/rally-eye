@@ -127,7 +127,7 @@ const ok = (cond, name, detail) => { if (cond) { pass++; console.log(`  PASS  ${
     ok(orange.p === 'orange' && orange.sat > 40, 'orange preset applies a narrow warm range', JSON.stringify(orange));
     await page.evaluate(() => document.querySelector('[data-preset="white"]').click());
     const white = await page.evaluate(() => ({ p: RallyEye.cfg.preset, satMax: RallyEye.cfg.satMax, valMin: RallyEye.cfg.valMin, gate: RallyEye.cfg.motionGate }));
-    ok(white.p === 'white' && white.satMax <= 25 && white.gate, 'white preset needs a bright, unsaturated, moving ball', JSON.stringify(white));
+    ok(white.p === 'white' && white.satMax <= 50 && white.valMin >= 60 && white.gate, 'white preset looks for a pale, bright, moving ball', JSON.stringify(white));
     // sample the ball colour from the video: the ball sits on the table band in this clip
     const box = await page.evaluate(() => { const r = document.getElementById('view').getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
     await page.evaluate(() => document.getElementById('btnPickBall').click());

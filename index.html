@@ -554,7 +554,7 @@ const BALL_R = 0.02;      // metres, a regulation 40 mm ball
 
 // ---------- Settings (persisted) ----------
 const defaults = {
-  preset: 'white', hueMin: 0, hueMax: 360, satMin: 0, satMax: 22, valMin: 75,
+  preset: 'white', hueMin: 0, hueMax: 360, satMin: 0, satMax: 45, valMin: 70,
   radMin: 1, radMax: 14, motionGate: true, motionThr: 22, sizeAuto: true, zoneOn: true, zoneH: 0.8, returnWin: 3,
   tableColor: 'blue', tHueMin: 205, tHueMax: 265, tSatMin: 10, tValMin: 25,
   view: 'side', mirror: false, procW: 480, showMask: false, showTrail: true, sound: true, voice: false, installDismissed: false,
@@ -713,7 +713,7 @@ const demo = (() => {
     // ball with motion blur along its velocity
     if (st.pause <= 0) {
       const b = project(ball.x, ball.y, ball.z); const b2 = project(ball.x - ball.vx * 0.012, ball.y - ball.vy * 0.012, ball.z - ball.vz * 0.012);
-      const white = cfg.satMax < 40;
+      const white = cfg.preset !== 'orange';
       g.strokeStyle = white ? 'rgba(244,244,240,0.55)' : 'rgba(255,140,40,0.55)'; g.lineWidth = b.r * 2; g.lineCap = 'round'; g.beginPath(); g.moveTo(b2.x, b2.y); g.lineTo(b.x, b.y); g.stroke();
       g.fillStyle = white ? '#F4F4F0' : '#FF8C28'; g.beginPath(); g.arc(b.x, b.y, b.r, 0, Math.PI * 2); g.fill();
       g.fillStyle = 'rgba(255,255,255,0.35)'; g.beginPath(); g.arc(b.x - b.r * 0.3, b.y - b.r * 0.3, b.r * 0.4, 0, Math.PI * 2); g.fill();
@@ -830,7 +830,7 @@ function shapeOk(b) {
   if (cfg.sizeAuto && table.rMin > 0) { // a 40 mm ball's apparent size is bounded by the table's near and far edges
     if (r < table.rMin * 0.45 || r > table.rMax * 2.2) return false;
   } else if (r > cfg.radMax * 1.1) return false;
-  if (cfg.satMax < 40 && brightContrast(b) < 18) return false; // a white ball stands out from what is around it; a shirt does not
+  if (cfg.preset !== 'orange' && brightContrast(b) < 18) return false; // a pale ball stands out from what is around it; a shirt does not
   return true;
 }
 function brightContrast(b) { // mean brightness inside the box minus a ring around it
@@ -1428,7 +1428,7 @@ view.addEventListener('pointerup', endDrag); view.addEventListener('pointercance
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && mode !== 'none') setMode('none'); });
 
 // ---------- Controls ----------
-const BALL_PRESETS = { orange: { hueMin: 10, hueMax: 40, satMin: 55, satMax: 100, valMin: 50, motionGate: true }, white: { hueMin: 0, hueMax: 360, satMin: 0, satMax: 22, valMin: 75, motionGate: true } };
+const BALL_PRESETS = { orange: { hueMin: 10, hueMax: 40, satMin: 55, satMax: 100, valMin: 50, motionGate: true }, white: { hueMin: 0, hueMax: 360, satMin: 0, satMax: 45, valMin: 70, motionGate: true } };
 const TABLE_PRESETS = { blue: { tHueMin: 205, tHueMax: 265, tSatMin: 10, tValMin: 25 }, green: { tHueMin: 85, tHueMax: 175, tSatMin: 12, tValMin: 20 } };
 const RANGES = ['hueMin', 'hueMax', 'satMin', 'satMax', 'valMin', 'radMin', 'radMax', 'motionThr', 'zoneH', 'returnWin'];
 const CHECKS = ['motionGate', 'showMask', 'showTrail', 'sound', 'voice', 'sizeAuto', 'zoneOn'];
