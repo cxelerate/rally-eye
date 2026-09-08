@@ -885,11 +885,16 @@ function processFrame(now) {
     stats.frames++; draw(now); if ((stats.frames & 3) === 0) updateStats(); return;
   }
 
-  // Anything that has looked like the ball on the same pixels for over a second is furniture, not a ball
-  const staticFrames = Math.max(20, Math.min(120, Math.round((fps || 30) * 1.2)));
-  for (let i = 0; i < N; i++) { if (mask[i]) { if (staticCount[i] < 255) staticCount[i]++; if (staticCount[i] > staticFrames) mask[i] = 0; } else staticCount[i] = 0; }
-
-  // Motion against a slowly adapting background, with a per-pixel noise floor so sensor grain never counts as movement
+  // One pass decides, for every ball-coloured pixel, whether anything is happening there. It is compared with
+  // a slowly learned picture of the room, against its own noise floor so grain never counts as movement.
+  //
+  // A place that keeps looking like the ball and never changes is furniture and is dropped. The count that
+  // decides this used to be wiped whenever a pixel fell out of the colour range for a single frame, and a
+  // pixel at the edge of something bright, a lit doorway or a window, drops in and out constantly as noise
+  // jostles it. Such a place therefore never counted as still and went on offering itself as a ball. The
+  // count now eases down on a miss instead of resetting, so those places do settle. Real change still clears
+  // it at once, which is what keeps a ball visible as it crosses a wall of its own colour.
+  const staticFrames = 2 * Math.max(20, Math.min(120, Math.round((fps || 30) * 1.2)));
   if (!haveBg) { bg.set(gray); noise.fill(3); haveBg = true; }
   else {
     const thr = cfg.motionThr, keepR2 = Math.pow(cfg.radMax * 1.5, 2), gate = cfg.motionGate;
@@ -898,8 +903,11 @@ function processFrame(now) {
       if (havePrev) noise[i] = (noise[i] * 7 + Math.abs(g0 - prevGray[i])) >> 3;
       const dbg = g0 > b0 ? g0 - b0 : b0 - g0;
       bg[i] = b0 + ((g0 - b0) >> 4);
-      if (!gate || !mask[i]) continue;
-      if (dbg > thr && dbg > noise[i] * 4) continue;
+      const moved = dbg > thr && dbg > noise[i] * 4;
+      if (!mask[i]) { if (staticCount[i]) staticCount[i]--; continue; }
+      if (moved) staticCount[i] = 0; else if (staticCount[i] < 250) staticCount[i] += 2;
+      if (staticCount[i] > staticFrames) { mask[i] = 0; continue; }
+      if (!gate || moved) continue;
       if (last && track.lost < 8) { const x = i % procW, y = (i - x) / procW; if ((x - last.x) ** 2 + (y - last.y) ** 2 <= keepR2) continue; }
       mask[i] = 0;
     }
