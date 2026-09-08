@@ -747,7 +747,7 @@ function resizeForSource() {
 }
 
 // ---------- Tracking state ----------
-const track = { pts: [], vx: 0, vy: 0, active: false, lost: 0, lastSeen: 0, speedPx: 0, kmh: null, kmhSmooth: null, r: 0, sawBounce: false, lastOutT: -1e9 };
+const track = { pts: [], vx: 0, vy: 0, active: false, lost: 0, lastSeen: 0, speedPx: 0, kmh: null, kmhSmooth: null, r: 0, sawBounce: false, lastOutT: -1e9, coast: null, coasted: 0 };
 const cand = { x: 0, y: 0, vx: 0, vy: 0, t: 0, n: 0, r: 0, hist: [] }; // a tentative ball: promoted after four frames on a smooth path at ball speed
 const pend = { active: false, t: 0, side: 'A', dir: 0, where: '' }; // the ball left the table and may still be returned
 let candAvg = 0, hintMode = '';
@@ -761,7 +761,7 @@ let wantTableDetect = false;
 function resetEvents() { ev.yDir = 0; ev.yRun = 0; ev.low = null; ev.pendBounce = null; ev.queued = null; ev.xDir = 0; ev.xRun = 0; ev.pendHit = null; }
 function resetStats() {
   stats.bounceA = 0; stats.bounceB = 0; stats.out = 0; stats.best = 0; stats.top = null; stats.bounces.length = 0;
-  rally.hits = 0; rally.hitsSince = 0; rally.lastBounceSide = null; markers.length = 0; pend.active = false; stats.returns = 0; stats.tracks = 0; stats.log.length = 0; resetEvents(); updateStats(); drawMap();
+  rally.hits = 0; rally.hitsSince = 0; rally.lastBounceSide = null; markers.length = 0; pend.active = false; stats.returns = 0; stats.tracks = 0; track.coasted = 0; stats.log.length = 0; resetEvents(); updateStats(); drawMap();
 }
 
 // ---------- Per-frame colour segmentation ----------
@@ -925,7 +925,12 @@ function processFrame(now) {
     if (b) updateTrack(b.cx, b.cy, now, b);
     else {
       track.lost++;
-      if (track.lost > 12) { track.active = false; cand.n = 0; cand.hist.length = 0; resetEvents(); track.kmhSmooth = null; hintMode = ''; ballLost(last); }
+      // the track already outlives a short block; this is where the ball is expected while it lasts, carried
+      // on its last path under gravity, so a bat or a hand crossing it does not look like the ball vanishing
+      const gap = Math.min(0.45, (now - last.t) / 1000), gPx = table.mppMid > 0 ? 9.81 / table.mppMid : 0;
+      track.coast = { x: last.x + track.vx * gap, y: last.y + track.vy * gap + 0.5 * gPx * gap * gap };
+      track.coasted++;
+      if (track.lost > 12) { track.active = false; track.coast = null; cand.n = 0; cand.hist.length = 0; resetEvents(); track.kmhSmooth = null; hintMode = ''; ballLost(last); }
       if (rally.hits > 0 && now - last.t > 2000) endRally('the ball left the frame');
     }
   } else {
@@ -975,7 +980,7 @@ function updateTrack(x, y, now, blob) {
     if (dt > 0) { const nvx = (x - prev.x) / dt, nvy = (y - prev.y) / dt; track.vx = track.active ? track.vx * 0.35 + nvx * 0.65 : nvx; track.vy = track.active ? track.vy * 0.35 + nvy * 0.65 : nvy; }
   } else { track.vx = 0; track.vy = 0; resetEvents(); }
   const wasLost = track.lost >= 8;
-  track.lost = 0; track.active = true; track.lastSeen = now; track.speedPx = Math.hypot(track.vx, track.vy);
+  track.lost = 0; track.coast = null; track.active = true; track.lastSeen = now; track.speedPx = Math.hypot(track.vx, track.vy);
   pts.push(p); if (pts.length > 24) pts.shift();
   // speed in real units when the table is known: local metre-per-pixel scale from the homography
   if (table.H && pts.length > 2 && !wasLost) {
@@ -1209,7 +1214,15 @@ function draw(now) {
     g.strokeStyle = `rgba(${col},${1 - age})`; g.lineWidth = lw * 3; g.beginPath(); g.arc(m.x * sx, m.y * sy, lw * (8 + 30 * age), 0, Math.PI * 2); g.stroke();
   }
   const last = track.pts[track.pts.length - 1];
-  if (track.active && last) {
+  if (track.active && track.coast) {
+    const c = track.coast, cx = c.x * sx, cy = c.y * sy, r = Math.max(lw * 8, track.r * sx + lw * 6);
+    g.setLineDash([lw * 4, lw * 4]); g.strokeStyle = 'rgba(240,184,58,0.95)'; g.lineWidth = lw * 2.5;
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
+    g.font = `700 ${13 * lw}px "Barlow Condensed", "Arial Narrow", sans-serif`; g.textAlign = 'center'; g.textBaseline = 'bottom';
+    g.lineWidth = lw * 3; g.strokeStyle = 'rgba(13,18,24,0.85)'; g.strokeText('hidden', cx, cy - r - lw * 3);
+    g.fillStyle = '#F0B83A'; g.fillText('hidden', cx, cy - r - lw * 3);
+  }
+  if (track.active && last && !track.coast) {
     const cx = last.x * sx, cy = last.y * sy, r = Math.max(lw * 7, last.r * sx + lw * 5);
     g.strokeStyle = '#FF8C28'; g.lineWidth = lw * 2.5; g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.stroke();
     if (track.speedPx > 2) { g.strokeStyle = 'rgba(255,140,40,0.9)'; g.lineWidth = lw * 2; g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + track.vx * sx * 0.12, cy + track.vy * sy * 0.12); g.stroke(); }
